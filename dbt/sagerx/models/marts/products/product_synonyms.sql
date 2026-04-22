@@ -48,8 +48,8 @@ fda_synonyms as (
             )) as synonym,
             product_rxcui,
             'FDA' as source
-    from sagerx_dev.stg_fda_ndc__ndcs f
-    left join sagerx_dev.int_rxnorm_ndcs_to_products r
+    from {{ ref('stg_fda_ndc__ndcs') }} f
+    left join {{ ref('int_rxnorm_ndcs_to_products') }} r
         on r.ndc = f.ndc11
     where r.product_rxcui is not null
 
