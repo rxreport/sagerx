@@ -109,6 +109,14 @@ mean to).
 
 - **pgadmin and marimo services are skipped** (not listed in the `up` command).
 
+- **`shm_size: 2g`** on the `postgres` service (added 2026-04-22). The Docker default of 64MB is far too small for parallel-query workers. Without this, large dbt intermediate models (`int_rxnorm_clinical_products_to_ingredient_components` was the canary) fail mid-transform with `could not resize shared memory segment "/PostgreSQL.*": No space left on device` — that "disk" is `/dev/shm`, not the host volume. 2GB covers every model we've seen; raise if new giant models appear.
+
+## Host sizing
+
+- **Volume**: the `/opt` attached volume holds **everything** — `sagerx/`, rxreport backend+frontend, MSSQL data, Docker layers. Currently **300GB** (resized up from 99GB on 2026-04-22 after a disk-full outage took postgres down).
+- **Main consumers**: `sagerx/repo/airflow/data/` (per-DAG download cache — `cms_part_d` ~25GB, `dailymed` ~20GB, `rxnorm` ~2GB per fresh run) + Docker images (~25GB) + warehouse `data/airflow-pg/` (grows with ingestion — target ~50GB when everything is loaded).
+- **Failed DAGs leak disk**: ingestion DAGs download their source zip, extract, and only clean up on success. Failed runs leave the extracted files behind, and retries add another copy. Watch `sagerx/repo/airflow/data/<dag_id>/` during incidents — safe to `rm -rf` any dir whose DAG's last run is failed, the data re-downloads on retry.
+
 ## Rebasing on upstream
 
 Upstream lives at <https://github.com/coderxio/sagerx>. Pulling updates:

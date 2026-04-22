@@ -17,7 +17,7 @@ dag = create_dag(
 )
 
 with dag:
-    url = "https://evs.nci.nih.gov/ftp1/NCPDP/NCPDP.txt"
+    url = "http://evs.nci.nih.gov/ftp1/NCPDP/NCPDP.txt"
     ds_folder = get_ds_folder(dag_id)
 
     extract_task = extract(dag_id, url)
