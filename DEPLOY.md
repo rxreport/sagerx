@@ -8,9 +8,13 @@ rebases against `coderxio/sagerx` never conflict with our deploy config.
 - **Host**: `app.rxreport.com` (Linode, `rxreport` user, SSH key on file)
 - **Install path**: `/opt/rxreport/rxreport-app/sagerx/`
 - **UI**: <https://sagerx.rxreport.space> (nginx → `127.0.0.1:8001` → Airflow webserver; Let's Encrypt)
-- **Warehouse**: shares the `neondb` Neon DB with the rxreport backend — sagerx writes
-  only to `sagerx_lake`, `sagerx_dev`, `sagerx` schemas under the `sagerx_worker` role
-- **Airflow metadata**: bundled Postgres 14, bind-mount at `overrides/../data/airflow-pg/`
+- **Warehouse**: the bundled Postgres 14 container (`postgres:5432`, DB `sagerx`, creds
+  `sagerx:sagerx` — upstream defaults). Lives on the same container that holds
+  Airflow metadata; different database name.
+- **NOT on Neon**: the `rxreport` app's `neondb` is untouched by sagerx. Managed
+  Neon rejects server-side `COPY <table> FROM '<path>'` (the pattern in sagerx's
+  ~40 load SQL files) because `pg_read_server_files` is superuser-only there.
+  That blocked the "warehouse on Neon" plan — we run the warehouse locally instead.
 
 ## Host directory layout
 
@@ -19,10 +23,11 @@ rebases against `coderxio/sagerx` never conflict with our deploy config.
 ├── repo/                               # git clone of rxreport/sagerx
 │                                       # tracks origin/deploy — NEVER edited in place
 ├── overrides/
-│   ├── docker-compose.override.yml     # joins rxreport_net, !override ports, env wiring
-│   ├── profiles.yml                    # dbt → Neon (env-substituted)
+│   ├── docker-compose.override.yml     # joins rxreport_net, !override ports,
+│   │                                   # group_add:[988] for docker-socket DAGs
+│   ├── profiles.yml                    # dbt → local bundled postgres
 │   └── .env                            # ALL secrets, 600 perms
-├── data/airflow-pg/                    # Airflow metadata Postgres bind-mount
+├── data/airflow-pg/                    # Airflow metadata + sagerx warehouse bind-mount
 └── deploy-sagerx.sh                    # the orchestrator this workflow calls
 ```
 
@@ -69,65 +74,70 @@ If the workflow fails immediately on SSH, confirm `rxreport/sagerx` is in the
 "selected repositories" list on each of the four org secrets at
 Org → Settings → Secrets → Actions.
 
-## Neon bootstrap (one-time, already done)
+## First-boot Postgres state
 
-Against the `neondb_owner` DSN — only if re-installing from scratch:
+When `data/airflow-pg/` is empty, the bundled `postgres:14-alpine` container runs
+`repo/postgres/*.sql` init scripts on first boot. These upstream scripts
+automatically create:
 
-```sql
-CREATE SCHEMA IF NOT EXISTS sagerx_lake;
-CREATE SCHEMA IF NOT EXISTS sagerx_dev;
-CREATE SCHEMA IF NOT EXISTS sagerx;
+- `airflow` database + `airflow` user (Airflow metadata)
+- `sagerx_lake`, `sagerx_dev`, `sagerx` schemas in the `sagerx` database
+- `sagerx.data_availability` table
+- `sagerx.product_agg` aggregate + `_final_product` function
 
-CREATE ROLE sagerx_worker LOGIN PASSWORD '...';
-GRANT sagerx_worker TO CURRENT_USER;           -- Neon requires this before OWNER TO
-REVOKE ALL ON SCHEMA public FROM sagerx_worker;
+No manual SQL needed for a fresh install. If you ever need to reset the warehouse,
+`rm -rf data/airflow-pg/*` and re-run `deploy-sagerx.sh` — the init scripts will
+re-seed everything (but you'll lose Airflow run history too, so don't unless you
+mean to).
 
-ALTER SCHEMA sagerx_lake OWNER TO sagerx_worker;
-ALTER SCHEMA sagerx_dev  OWNER TO sagerx_worker;
-ALTER SCHEMA sagerx      OWNER TO sagerx_worker;
+## Important override details
 
-SET ROLE sagerx_worker;
+- **`group_add: ["988"]`** on all airflow services — the host docker group gid.
+  Airflow 2.5.1's entrypoint requires `gid=0` as the primary group, so we add 988
+  as a supplementary group. This gives DAGs that shell out via `docker exec dbt ...`
+  (`mccpd.transform`, `build_marts`, `export_marts`, etc.) access to
+  `/var/run/docker.sock`. If this gid changes on the host, update `overrides/docker-compose.override.yml`.
 
-CREATE TABLE sagerx.data_availability (
-    schema_name text, table_name text, has_data boolean, materialized text
-);
+- **`AIRFLOW_CONN_POSTGRES_DEFAULT`** and **`AIRFLOW_CONN_SAGERX_WAREHOUSE`** both
+  point at `postgresql://sagerx:sagerx@postgres:5432/sagerx`. Airflow auto-registers
+  these as connections on webserver/scheduler boot.
 
-CREATE OR REPLACE FUNCTION sagerx._final_product(numeric) RETURNS numeric
-  LANGUAGE sql IMMUTABLE STRICT AS 'SELECT $1';
+- **`ports: !override`** (Compose v2.24+ tag) on `postgres`, `airflow-webserver`,
+  and `dbt`. Without it, compose MERGES port lists, so the base's public
+  `0.0.0.0:5432` / `0.0.0.0:8081` bindings would stick around. With it, we get
+  only `127.0.0.1:8001` (Airflow UI, behind nginx) exposed on the host.
 
-CREATE AGGREGATE sagerx.product_agg(numeric) (
-  SFUNC = numeric_mul, STYPE = numeric, INITCOND = '1',
-  FINALFUNC = sagerx._final_product
-);
-
-RESET ROLE;
-```
-
-> `data_availability` lives in the `sagerx` mart schema per upstream
-> `postgres/2_sagerx_setup.sql` — not in `sagerx_lake` despite the name.
-
-## Known deviations from upstream
-
-- `product_agg` aggregate installed in `sagerx` schema, not `public`. Any DAG or
-  dbt model that calls `product_agg(...)` unqualified will fail — qualify as
-  `sagerx.product_agg(...)`.
-- `AIRFLOW_CONN_POSTGRES_DEFAULT` redirected to Neon (`sagerx_worker@neondb`)
-  instead of the bundled `sagerx:sagerx@postgres:5432/sagerx`. DAGs that hardcode
-  the bundled DSN will not work against Neon. Fix on a case-by-case basis.
-- `pgadmin` and `marimo` services are skipped (not included in the up command).
-- All host ports except `127.0.0.1:8001` (Airflow UI, behind nginx) are unbound.
+- **pgadmin and marimo services are skipped** (not listed in the `up` command).
 
 ## Rebasing on upstream
 
 Upstream lives at <https://github.com/coderxio/sagerx>. Pulling updates:
 
 ```bash
+git remote add upstream https://github.com/coderxio/sagerx.git
 git fetch upstream
 git checkout main && git merge --ff-only upstream/main
 git push origin main
 
-# Then fast-forward deploy to main + the workflow commit
+# Then fast-forward deploy to main + the deploy-only commits
 git checkout deploy
-git rebase main         # should be clean: DEPLOY.md and linode-deploy.yml only
+git rebase main         # should be clean: DEPLOY.md + .github/workflows/linode-deploy.yml only
 git push origin deploy  # triggers GHA and redeploys
 ```
+
+## Future migration path: warehouse on Neon
+
+If there's ever a reason to move the warehouse back to Neon (e.g. to get managed
+backups / point-in-time recovery), the blocking issue is the ~40 load SQL files
+that use server-side `COPY FROM '<path>'`. The fix would be:
+
+1. Add a `CopyFromFileOperator` helper in `airflow/plugins/` that reads the existing
+   SQL, rewrites `COPY ... FROM '<path>'` to `COPY ... FROM STDIN`, opens the file
+   client-side, and pipes via `psycopg2.copy_expert`.
+2. Replace `PostgresOperator(sql=read_sql_file(x))` with the new operator in the
+   ~17 affected `dag.py` files. SQL files stay unchanged.
+3. Flip `AIRFLOW_CONN_POSTGRES_DEFAULT` / `AIRFLOW_CONN_SAGERX_WAREHOUSE` / dbt
+   profile to point at Neon.
+
+The `sagerx_worker` Neon role and empty `sagerx_*` schemas are still present on
+`neondb` from the abandoned plan — harmless, drop whenever.
