@@ -1,5 +1,5 @@
 /* sagerx_lake.rxterms */
-DROP TABLE IF EXISTS sagerx_lake.rxterms;
+DROP TABLE IF EXISTS sagerx_lake.rxterms CASCADE;
 
 CREATE TABLE sagerx_lake.rxterms (
 rxcui                   TEXT,
