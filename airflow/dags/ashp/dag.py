@@ -50,7 +50,9 @@ with dag:
         # past Cloudflare configs that gate on ja3/ja4 alone. Reuse one Session
         # so the cf_clearance cookie set on the landing-page challenge carries
         # through to the per-shortage detail-page fan-out below.
-        scraper = cffi_requests.Session(impersonate="chrome120")
+        # Pinned to chrome119 — the latest impersonation target available in
+        # curl_cffi 0.5.x (chrome120 needs 0.6+, which needs Python 3.8+).
+        scraper = cffi_requests.Session(impersonate="chrome119")
 
         logging.info('Checking ASHP website for updates')
         shortage_list = scraper.get(landing_url, timeout=30)
