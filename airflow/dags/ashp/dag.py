@@ -6,7 +6,6 @@ from datetime import date, datetime
 from time import sleep
 
 import requests
-from curl_cffi import requests as cffi_requests
 from bs4 import BeautifulSoup
 import pandas as pd
 
@@ -46,148 +45,181 @@ with dag:
     def extract_load_shortage_list():
         logging.basicConfig(level=logging.INFO, format='%(asctime)s : %(levelname)s : %(message)s')
 
-        # curl_cffi impersonates a real Chrome TLS fingerprint, which gets us
-        # past Cloudflare configs that gate on ja3/ja4 alone. Reuse one Session
-        # so the cf_clearance cookie set on the landing-page challenge carries
-        # through to the per-shortage detail-page fan-out below.
-        # chrome110 is the newest impersonation target available in curl_cffi
-        # 0.5.10 (verified via BrowserType.__members__). Newer Chrome targets
-        # need 0.6+, which needs Python 3.8+, which needs an airflow base bump.
-        scraper = cffi_requests.Session(impersonate="chrome110")
-
-        logging.info('Checking ASHP website for updates')
-        shortage_list = scraper.get(landing_url, timeout=30)
-
-        if shortage_list.status_code != 200:
-            logging.error('ASHP website unreachable')
-            logging.error(f'Status code: {shortage_list.status_code}')
-            logging.error(f'Response head: {shortage_list.text[:500]}')
-            raise RuntimeError(
-                f"curl_cffi got {shortage_list.status_code} from ASHP landing — "
-                "Cloudflare's challenge may now require JS execution"
-            )
-
-        ashp_drugs = []
-        soup = BeautifulSoup(shortage_list.content, 'html.parser')
-        for link in soup.find(id='1_dsGridView').find_all('a'):
-            ashp_drugs.append({
-                'name': link.get_text(),
-                'detail_url': link.get('href')
-            })
+        # Playwright is needed because ASHP sits behind Cloudflare's managed
+        # challenge — the "Just a moment..." JS check that no TLS-only client
+        # (cloudscraper, curl_cffi) can solve. Headless Chromium executes the
+        # JS, gets the cf_clearance cookie, then we reuse the BrowserContext
+        # across the landing page → ~50 detail pages so the cookie carries.
+        # Lazy-import here so other DAGs don't pay the import cost at parse time.
+        from playwright.sync_api import sync_playwright
 
         affected_ndcs = []
         available_ndcs = []
+        ashp_drugs = []
 
-        for shortage in ashp_drugs:
-            shortage_detail_data = scraper.get(base_url + shortage['detail_url'])
-            soup = BeautifulSoup(shortage_detail_data.content, 'html.parser')
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                ],
+            )
+            context = browser.new_context(
+                # Match the bundled Chromium version (115) — UA mismatched with
+                # TLS fingerprint is itself a bot-detection tell.
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/115.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 800},
+                locale="en-US",
+            )
+            # Hide the navigator.webdriver flag that headless Chromium sets
+            # by default — Cloudflare's bot detection looks at this.
+            context.add_init_script(
+                "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
+            )
+            page = context.new_page()
 
-            # Get shortage reasons
-            shortage_reasons = []
-            try:
-                for reason in soup.find(id='1_lblReason').find_all('li'):
-                    shortage_reasons.append(reason.get_text())
-            except AttributeError:
-                logging.debug(f'No shortage reasons for {shortage.get("name")}')
-                shortage['shortage_reasons'] = None
-            else:
-                shortage['shortage_reasons'] = json.dumps(shortage_reasons)
+            logging.info('Checking ASHP website for updates')
+            page.goto(landing_url, wait_until="networkidle", timeout=60_000)
+            landing_html = page.content()
 
-            # Get resupply dates
-            resupply_dates = []
-            try:
-                for date_info in soup.find(id='1_lblResupply').find_all('li'):
-                    resupply_dates.append(date_info.get_text())
-            except AttributeError:
-                logging.debug(f'No resupply dates for {shortage.get("name")}')
-                shortage['resupply_dates'] = None
-            else:
-                shortage['resupply_dates'] = json.dumps(resupply_dates)
+            if "Just a moment" in landing_html or "challenges.cloudflare.com" in landing_html:
+                logging.error('ASHP landing still showing Cloudflare challenge after networkidle')
+                logging.error(f'Body head: {landing_html[:500]}')
+                raise RuntimeError(
+                    "Playwright could not pass Cloudflare's challenge for ASHP landing — "
+                    "may need playwright-extra / rebrowser-playwright stealth patches"
+                )
 
-            # Get implications on patient care
-            care_implications = []
-            try:
-                for implication in soup.find(id='1_lblImplications').find_all('li'):
-                    care_implications.append(implication.get_text())
-            except AttributeError:
-                logging.debug(f'No care implications for {shortage.get("name")}')
-                shortage['care_implications'] = None
-            else:
-                shortage['care_implications'] = json.dumps(care_implications)
+            soup = BeautifulSoup(landing_html, 'html.parser')
+            grid = soup.find(id='1_dsGridView')
+            if grid is None:
+                logging.error(f'Landing did not contain id="1_dsGridView". Body head: {landing_html[:500]}')
+                raise RuntimeError("ASHP landing layout changed — id='1_dsGridView' not found")
+            for link in grid.find_all('a'):
+                ashp_drugs.append({
+                    'name': link.get_text(),
+                    'detail_url': link.get('href')
+                })
 
-            # Get safety information
-            safety_notices = []
-            try:
-                for notice in soup.find(id='1_lblSafety').find_all('li'):
-                    safety_notices.append(notice.get_text())
-            except AttributeError:
-                logging.debug(f'No safety notices for {shortage.get("name")}')
-                shortage['safety_notices'] = None
-            else:
-                shortage['safety_notices'] = json.dumps(safety_notices)
+            for shortage in ashp_drugs:
+                page.goto(base_url + shortage['detail_url'], wait_until="networkidle", timeout=60_000)
+                detail_html = page.content()
+                soup = BeautifulSoup(detail_html, 'html.parser')
 
-            # Get alternative agents and management info
-            alternatives = []
-            try:
-                for alternative in soup.find(id='1_lblAlternatives').find_all('li'):
-                    alternatives.append(alternative.get_text())
-            except AttributeError:
-                logging.debug(f'No alternatives/management information for {shortage.get("name")}')
-                shortage['alternatives_and_management'] = None
-            else:
-                shortage['alternatives_and_management'] = json.dumps(alternatives)
+                # Get shortage reasons
+                shortage_reasons = []
+                try:
+                    for reason in soup.find(id='1_lblReason').find_all('li'):
+                        shortage_reasons.append(reason.get_text())
+                except AttributeError:
+                    logging.debug(f'No shortage reasons for {shortage.get("name")}')
+                    shortage['shortage_reasons'] = None
+                else:
+                    shortage['shortage_reasons'] = json.dumps(shortage_reasons)
 
-            # Get affected NDCs
-            try:
-                for ndc_description in soup.find(id='1_lblProducts').find_all('li'):
-                    ndc_data = {
-                        'detail_url': shortage['detail_url'],
-                        'ndc_description': ndc_description.get_text(),
-                    }
-                    if ',' in ndc_data['ndc_description']:
-                        affected_ndcs.append(ndc_data)
-            except (TypeError, AttributeError):
-                logging.debug(f'No affected NDCs for {shortage.get("name")}')
+                # Get resupply dates
+                resupply_dates = []
+                try:
+                    for date_info in soup.find(id='1_lblResupply').find_all('li'):
+                        resupply_dates.append(date_info.get_text())
+                except AttributeError:
+                    logging.debug(f'No resupply dates for {shortage.get("name")}')
+                    shortage['resupply_dates'] = None
+                else:
+                    shortage['resupply_dates'] = json.dumps(resupply_dates)
 
-            # Get currently available NDCs
-            try:
-                for ndc_description in soup.find(id='1_lblAvailable').find_all('li'):
-                    ndc_data = {
-                        'detail_url': shortage['detail_url'],
-                        'ndc_description': ndc_description.get_text(),
-                    }
-                    if ',' in ndc_data['ndc_description']:
-                        available_ndcs.append(ndc_data)
-            except (TypeError, AttributeError):
-                logging.debug(f'No available NDCs for {shortage.get("name")}')
+                # Get implications on patient care
+                care_implications = []
+                try:
+                    for implication in soup.find(id='1_lblImplications').find_all('li'):
+                        care_implications.append(implication.get_text())
+                except AttributeError:
+                    logging.debug(f'No care implications for {shortage.get("name")}')
+                    shortage['care_implications'] = None
+                else:
+                    shortage['care_implications'] = json.dumps(care_implications)
 
-            # Get created date
-            stamp = soup.find(id='1_lblUpdated').find('p').get_text()
-            try:
-                created_date = created_regex.search(stamp).group(1)
-                created_date = datetime.strptime(created_date, '%B %d, %Y')
-                shortage['created_date'] = created_date
-            except AttributeError:
-                logging.debug(f'Missing ASHP created date for {shortage.get("name")}')
-                shortage['created_date'] = None
-            except ValueError:
-                logging.error(f'Could not parse created date for {shortage.get("name")}')
-                shortage['created_date'] = None
+                # Get safety information
+                safety_notices = []
+                try:
+                    for notice in soup.find(id='1_lblSafety').find_all('li'):
+                        safety_notices.append(notice.get_text())
+                except AttributeError:
+                    logging.debug(f'No safety notices for {shortage.get("name")}')
+                    shortage['safety_notices'] = None
+                else:
+                    shortage['safety_notices'] = json.dumps(safety_notices)
 
-            # Get last updated date
-            try:
-                updated_date = updated_regex.search(stamp).group(1)
-                updated_date = datetime.strptime(updated_date, '%B %d, %Y')
-                shortage['updated_date'] = updated_date
-            except AttributeError:
-                logging.debug(f'Missing ASHP update date for {shortage.get("name")}')
-                shortage['updated_date'] = None
-            except ValueError:
-                logging.error(f'Could not parse update date for {shortage.get("name")}')
-                shortage['updated_date'] = None
+                # Get alternative agents and management info
+                alternatives = []
+                try:
+                    for alternative in soup.find(id='1_lblAlternatives').find_all('li'):
+                        alternatives.append(alternative.get_text())
+                except AttributeError:
+                    logging.debug(f'No alternatives/management information for {shortage.get("name")}')
+                    shortage['alternatives_and_management'] = None
+                else:
+                    shortage['alternatives_and_management'] = json.dumps(alternatives)
 
-            sleep(0.2)
-        
+                # Get affected NDCs
+                try:
+                    for ndc_description in soup.find(id='1_lblProducts').find_all('li'):
+                        ndc_data = {
+                            'detail_url': shortage['detail_url'],
+                            'ndc_description': ndc_description.get_text(),
+                        }
+                        if ',' in ndc_data['ndc_description']:
+                            affected_ndcs.append(ndc_data)
+                except (TypeError, AttributeError):
+                    logging.debug(f'No affected NDCs for {shortage.get("name")}')
+
+                # Get currently available NDCs
+                try:
+                    for ndc_description in soup.find(id='1_lblAvailable').find_all('li'):
+                        ndc_data = {
+                            'detail_url': shortage['detail_url'],
+                            'ndc_description': ndc_description.get_text(),
+                        }
+                        if ',' in ndc_data['ndc_description']:
+                            available_ndcs.append(ndc_data)
+                except (TypeError, AttributeError):
+                    logging.debug(f'No available NDCs for {shortage.get("name")}')
+
+                # Get created date
+                stamp = soup.find(id='1_lblUpdated').find('p').get_text()
+                try:
+                    created_date = created_regex.search(stamp).group(1)
+                    created_date = datetime.strptime(created_date, '%B %d, %Y')
+                    shortage['created_date'] = created_date
+                except AttributeError:
+                    logging.debug(f'Missing ASHP created date for {shortage.get("name")}')
+                    shortage['created_date'] = None
+                except ValueError:
+                    logging.error(f'Could not parse created date for {shortage.get("name")}')
+                    shortage['created_date'] = None
+
+                # Get last updated date
+                try:
+                    updated_date = updated_regex.search(stamp).group(1)
+                    updated_date = datetime.strptime(updated_date, '%B %d, %Y')
+                    shortage['updated_date'] = updated_date
+                except AttributeError:
+                    logging.debug(f'Missing ASHP update date for {shortage.get("name")}')
+                    shortage['updated_date'] = None
+                except ValueError:
+                    logging.error(f'Could not parse update date for {shortage.get("name")}')
+                    shortage['updated_date'] = None
+
+                sleep(0.2)
+
+            context.close()
+            browser.close()
+
         if len(ashp_drugs) > 0:
             # Load the main shortage table
             shortage_columns = ['name', 'detail_url', 'shortage_reasons', 'resupply_dates',

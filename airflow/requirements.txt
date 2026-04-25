@@ -9,7 +9,9 @@ s3fs
 openpyxl
 xlrd==1.2.0
 cloudscraper
-# curl_cffi 0.7+ requires Python 3.8 — the upstream airflow 2.5.1 base
-# image is still on Python 3.7, so pin to the last 0.5.x stable. 0.5.10
-# already supports `impersonate="chrome120"`.
-curl_cffi>=0.5.10,<0.6
+# Playwright for ashp's Cloudflare managed challenge — curl_cffi alone
+# (TLS impersonation only) couldn't pass it; managed challenge requires
+# JS execution. Pinned to 1.35.* — playwright dropped Python 3.7 at 1.36,
+# so 1.35.0 is the actual max on the airflow 2.5.1 base image we inherit.
+# Ships Chromium ~115; recent enough to look like a real browser.
+playwright==1.35.*
