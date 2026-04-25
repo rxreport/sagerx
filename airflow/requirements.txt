@@ -9,3 +9,7 @@ s3fs
 openpyxl
 xlrd==1.2.0
 cloudscraper
+# curl_cffi 0.7+ requires Python 3.8 — the upstream airflow 2.5.1 base
+# image is still on Python 3.7, so pin to the last 0.5.x stable. 0.5.10
+# already supports `impersonate="chrome120"`.
+curl_cffi>=0.5.10,<0.6

@@ -6,7 +6,7 @@ from datetime import date, datetime
 from time import sleep
 
 import requests
-import cloudscraper
+from curl_cffi import requests as cffi_requests
 from bs4 import BeautifulSoup
 import pandas as pd
 
@@ -46,23 +46,23 @@ with dag:
     def extract_load_shortage_list():
         logging.basicConfig(level=logging.INFO, format='%(asctime)s : %(levelname)s : %(message)s')
 
-        # Use cloudscraper to bypass Cloudflare protection
-        scraper = cloudscraper.create_scraper(
-            browser={
-                'browser': 'chrome',
-                'platform': 'windows',
-                'mobile': False
-            }
-        )
-        
+        # curl_cffi impersonates a real Chrome TLS fingerprint, which gets us
+        # past Cloudflare configs that gate on ja3/ja4 alone. Reuse one Session
+        # so the cf_clearance cookie set on the landing-page challenge carries
+        # through to the per-shortage detail-page fan-out below.
+        scraper = cffi_requests.Session(impersonate="chrome120")
+
         logging.info('Checking ASHP website for updates')
-        shortage_list = scraper.get(landing_url)
+        shortage_list = scraper.get(landing_url, timeout=30)
 
         if shortage_list.status_code != 200:
             logging.error('ASHP website unreachable')
             logging.error(f'Status code: {shortage_list.status_code}')
-            logging.error(f'Response: {shortage_list.text}')
-            exit()
+            logging.error(f'Response head: {shortage_list.text[:500]}')
+            raise RuntimeError(
+                f"curl_cffi got {shortage_list.status_code} from ASHP landing — "
+                "Cloudflare's challenge may now require JS execution"
+            )
 
         ashp_drugs = []
         soup = BeautifulSoup(shortage_list.content, 'html.parser')

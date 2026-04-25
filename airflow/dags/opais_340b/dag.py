@@ -1,3 +1,9 @@
+# Manual-trigger DAG (schedule=None). HRSA's OPAIS 340B portal serves the
+# Public Use File behind a JS-rendered UI with no stable direct download URL,
+# so this DAG has no extract task — it expects the operator to stage the
+# OPAIS Excel workbook in /opt/airflow/data/opais_340b/ before triggering.
+# Triggering without a staged file fails fast with FileNotFoundError in
+# dag_tasks._get_latest_excel.
 import pendulum
 
 from airflow_operator import create_dag
