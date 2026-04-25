@@ -30,7 +30,10 @@ def extract_with_month_fallback() -> str:
     data_folder = get_data_folder(dag_id)
     today = date.today()
     attempts = []
-    for months_back in range(0, 4):
+    # Look back 12 months so the fallback spans year boundaries — FDA's January
+    # release pattern means a fresh DAG run in early-Q1 may need to reach back
+    # into the prior year before the new year's first file is published.
+    for months_back in range(0, 12):
         candidate = today - relativedelta(months=months_back)
         year = candidate.strftime("%Y")
         month = candidate.strftime("%B")
