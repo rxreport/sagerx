@@ -1,4 +1,4 @@
-# Any change made here should accompany an increment 
+# Any change made here should accompany an increment
 # to the image version on line 5 of docker-compose.yml
 
 dbt-core
@@ -9,12 +9,3 @@ s3fs
 openpyxl
 xlrd==1.2.0
 cloudscraper
-# Playwright for ashp's Cloudflare managed challenge — curl_cffi alone
-# (TLS impersonation only) couldn't pass it; managed challenge requires
-# JS execution. Pinned to 1.35.* — playwright dropped Python 3.7 at 1.36,
-# so 1.35.0 is the actual max on the airflow 2.5.1 base image we inherit.
-# Ships Chromium ~115; recent enough to look like a real browser.
-playwright==1.35.*
-# playwright-stealth patches navigator/WebGL/plugin properties Cloudflare
-# uses to detect automation. Pinned to 1.x — 2.0+ requires Python 3.8.
-playwright-stealth>=1.0,<2
