@@ -52,6 +52,11 @@ with dag:
         # across the landing page → ~50 detail pages so the cookie carries.
         # Lazy-import here so other DAGs don't pay the import cost at parse time.
         from playwright.sync_api import sync_playwright
+        # playwright-stealth patches the page so navigator properties, WebGL,
+        # plugin enumeration, and Permission API match a real Chrome — without
+        # this, vanilla Playwright still gets caught by Cloudflare's managed
+        # challenge fingerprinting. Wrap each page after creation.
+        from playwright_stealth import stealth_sync
 
         affected_ndcs = []
         available_ndcs = []
@@ -82,6 +87,10 @@ with dag:
                 "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
             )
             page = context.new_page()
+            # Apply playwright-stealth's full set of patches on top of the
+            # webdriver hide above. Order matters — stealth_sync must run
+            # before the first page.goto().
+            stealth_sync(page)
 
             logging.info('Checking ASHP website for updates')
             page.goto(landing_url, wait_until="networkidle", timeout=60_000)

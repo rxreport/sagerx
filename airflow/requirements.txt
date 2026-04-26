@@ -15,3 +15,6 @@ cloudscraper
 # so 1.35.0 is the actual max on the airflow 2.5.1 base image we inherit.
 # Ships Chromium ~115; recent enough to look like a real browser.
 playwright==1.35.*
+# playwright-stealth patches navigator/WebGL/plugin properties Cloudflare
+# uses to detect automation. Pinned to 1.x — 2.0+ requires Python 3.8.
+playwright-stealth>=1.0,<2
