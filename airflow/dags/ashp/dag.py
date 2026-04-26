@@ -21,6 +21,19 @@ from sagerx import read_sql_file, load_df_to_pg
 from airflow.decorators import task
 
 
+# WARNING: as of 2026-04-25, ASHP's drug-shortages site is behind Cloudflare's
+# managed challenge ("Just a moment..." JS gate). The cloudscraper-based
+# extractor below was confirmed to 403 from a Linode-hosted airflow runner.
+# Tested-and-failed bypass attempts from the rxreport fork:
+#   - curl_cffi with chrome110/119/120 TLS impersonation
+#   - vanilla Playwright + headless Chromium 115 + navigator.webdriver hide
+#   - playwright-stealth (1.x for Python 3.7 compat)
+# All resolved to "Just a moment..." HTML in ~3s — CF detects either the
+# CDP-protocol traffic Playwright generates or the egress IP itself.
+# Viable paths forward (each unblocks this DAG): rebrowser-playwright on a
+# newer airflow base, an egress proxy from a non-flagged IP, or upgrading
+# the airflow base image to 2.7+ for Python 3.8+ + current stealth tooling.
+# If your fork's egress isn't flagged by CF, cloudscraper may still work.
 dag_id = "ashp"
 
 dag = create_dag(
