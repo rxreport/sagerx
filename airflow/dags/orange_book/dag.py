@@ -1,3 +1,4 @@
+import pendulum
 from airflow_operator import create_dag
 from airflow.utils.helpers import chain
 
@@ -10,7 +11,13 @@ dag_id = "orange_book"
 
 dag = create_dag(
     dag_id=dag_id,
-    schedule= "15 0 24 1 *",  # runs once monthly on the 24th day at 00:15
+    # FIXED start_date. The shared default is a sliding `pendulum.today()`, which
+    # is re-evaluated on every parse (every 30s), so a data interval can never
+    # close and the DAG never runs — this DAG last ran 2026-04. A fixed date is
+    # the only thing that unfreezes it. catchup=False keeps this to ONE run.
+    start_date=pendulum.datetime(2026, 8, 1, tz="UTC"),
+    catchup=False,
+    schedule= "15 0 24 * *",  # monthly (field 4 is the MONTH: "1" meant January-only) — on the 24th day at 00:15
     max_active_runs=1,
     concurrency=2,
 )
