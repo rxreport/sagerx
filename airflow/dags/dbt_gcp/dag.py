@@ -1,3 +1,24 @@
+"""Sync the dbt warehouse to Google Cloud Storage + BigQuery.
+
+DELIBERATELY PAUSED in the rxreport deployment — do not unpause it there without
+reading this first. It is the only paused DAG, so its state looks like an
+oversight; it is not. Two independent reasons, either alone sufficient:
+
+  1. This deployment does not sync to GCP at all. There is no GCS bucket and no
+     BigQuery dataset behind GCS_BUCKET / GCP_PROJECT / GCP_DATASET, so every
+     downstream task here has nowhere to write. Unpausing buys a nightly red run
+     and nothing else.
+  2. `run_dbt` below runs `dbt run` UNSCOPED — every model, not this DAG's own.
+     That makes it fail on models belonging to other sources: as of 2026-08-12
+     it dies creating stg_ashp__current_drug_shortages / _ndcs, because `ashp`
+     cannot load (ashp.org is behind a Cloudflare challenge — see ashp/dag.py).
+     So its failure is mostly a REPORT ON ANOTHER DAG, which makes it a bad
+     signal to leave running: it would stay red after the GCP question was
+     settled, for reasons that have nothing to do with GCP.
+
+Revisit only if this deployment actually adopts BigQuery. Deleting it outright
+is a separate upstream decision (it is inherited from coderxio/sagerx).
+"""
 import pendulum
 
 from airflow_operator import create_dag

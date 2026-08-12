@@ -47,6 +47,29 @@ def write_json_file(json_path:str, data):
         json.dump(data, f)
 
 # Web functions
+
+# Several federal data hosts sit behind a bot-management WAF (FDA/accessdata is on
+# Akamai Bot Manager) that refuses the default `python-requests/x.y` User-Agent.
+# The refusal is NOT an honest 404/403 for the resource: FDA answers a request for a
+# file that plainly exists with **HTTP 404 and a ~420-byte "excessive requests"
+# apology page**, which is indistinguishable from "this month was never published"
+# unless you look at the body. Verified 2026-08-12 from inside the airflow container
+# against a file confirmed present in FDA's own download index:
+#   default UA -> 404 (418-byte text/html)   browser UA -> 200 (476,652-byte csv)
+# Every outbound fetch in this repo must therefore send a browser User-Agent. This is
+# the same header `download_dataset` has always sent; it is defined here so probe
+# code (which historically forgot it) can share the one definition.
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+)
+
+
+def browser_headers() -> dict:
+    """Headers every outbound dataset request should carry. See BROWSER_USER_AGENT."""
+    return {"User-Agent": BROWSER_USER_AGENT}
+
+
 def download_dataset(url: str, dest: Path = Path.cwd(), file_name: str = None):
     """Downloads a data set file from provided Url via a requests steam
 
@@ -56,9 +79,7 @@ def download_dataset(url: str, dest: Path = Path.cwd(), file_name: str = None):
     import requests
     import re
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
+    headers = browser_headers()
 
     with requests.get(url, stream=True, allow_redirects=True, headers=headers) as r:
         r.raise_for_status()
