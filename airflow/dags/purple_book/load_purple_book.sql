@@ -15,10 +15,12 @@ product_presentation						TEXT,
 status										TEXT,
 licensure									TEXT,
 approval_date								TEXT,
+inter_approval_date							TEXT,
 ref_product_proper_name						TEXT,
 ref_Product_proprietary_name				TEXT,
 supplement_number							TEXT,
 submission_type								TEXT,
+inter_supplement_number						TEXT,
 license_number								TEXT,
 product_number								TEXT,
 center										TEXT,
@@ -26,7 +28,8 @@ date_of_first_licensure						TEXT,
 exclusivity_expiration_date					TEXT,
 first_interchangeable_exclusivity_exp_date	TEXT,
 ref_product_exclusivity_exp_date			TEXT,
-orphan_exclusivity_exp_date					TEXT
+orphan_exclusivity_exp_date					TEXT,
+patent_list_provided						TEXT
 );
 
 COPY sagerx_lake.purple_book
