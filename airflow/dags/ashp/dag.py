@@ -13,6 +13,7 @@ import pandas as pd
 import pendulum
 
 from airflow_operator import create_dag
+from airflow.exceptions import AirflowException, AirflowFailException
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 
 from common_dag_tasks import  extract, transform, generate_sql_list, get_ds_folder
@@ -21,19 +22,35 @@ from sagerx import read_sql_file, load_df_to_pg
 from airflow.decorators import task
 
 
-# WARNING: as of 2026-04-25, ASHP's drug-shortages site is behind Cloudflare's
-# managed challenge ("Just a moment..." JS gate). The cloudscraper-based
-# extractor below was confirmed to 403 from a Linode-hosted airflow runner.
-# Tested-and-failed bypass attempts from the rxreport fork:
-#   - curl_cffi with chrome110/119/120 TLS impersonation
-#   - vanilla Playwright + headless Chromium 115 + navigator.webdriver hide
-#   - playwright-stealth (1.x for Python 3.7 compat)
-# All resolved to "Just a moment..." HTML in ~3s — CF detects either the
-# CDP-protocol traffic Playwright generates or the egress IP itself.
-# Viable paths forward (each unblocks this DAG): rebrowser-playwright on a
-# newer airflow base, an egress proxy from a non-flagged IP, or upgrading
-# the airflow base image to 2.7+ for Python 3.8+ + current stealth tooling.
-# If your fork's egress isn't flagged by CF, cloudscraper may still work.
+# ---------------------------------------------------------------------------
+# KNOWN BROKEN — the upstream source is gated, not the code below.
+#
+# ashp.org sits behind Cloudflare's managed challenge (the "Just a moment..."
+# JS/Turnstile interstitial). Re-verified 2026-08-12, and the picture is worse
+# than the 2026-04-25 note it replaces:
+#   * The block is SITE-WIDE, not specific to the shortages path or to our
+#     egress. https://www.ashp.org/ itself, the shortages list, and a detail
+#     page all answer 403 + "Just a moment..." — from the prod Linode AND from
+#     an unrelated residential IP. So an egress proxy alone would not fix it.
+#   * cloudscraper 1.2.71 (installed; also the newest release that exists —
+#     the project has shipped nothing since 2023) returns 403 from inside the
+#     airflow container. Bumping the pin cannot help: cloudscraper solves the
+#     LEGACY IUAM JS challenge, and this is the current managed challenge.
+# Previously tested and also failed: curl_cffi TLS impersonation (chrome110/
+# 119/120), vanilla Playwright + headless Chromium 115, playwright-stealth 1.x.
+#
+# Deliberately NOT attempted: solving the challenge. Defeating a CAPTCHA/bot
+# gate is out of bounds for this pipeline, so this DAG fails loudly and stays
+# red rather than pretending. Real ways out, in preference order:
+#   1. Ask ASHP for a data-sharing/API arrangement (they publish this as a
+#      public-health resource; a licensed feed is the durable answer).
+#   2. Switch the source to FDA's drug-shortage database, which is open and
+#      documented. NOTE: it is a DIFFERENT dataset with different columns, so
+#      it is a new DAG plus new dbt staging models, not a URL swap.
+#   3. A real (non-headless) browser runner on a newer base image.
+# Until one of those lands, `ashp` failing daily is expected and truthful, and
+# `dbt_gcp` stays paused because its models read this DAG's tables.
+# ---------------------------------------------------------------------------
 dag_id = "ashp"
 
 dag = create_dag(
@@ -72,10 +89,35 @@ with dag:
         shortage_list = scraper.get(landing_url)
 
         if shortage_list.status_code != 200:
-            logging.error('ASHP website unreachable')
-            logging.error(f'Status code: {shortage_list.status_code}')
-            logging.error(f'Response: {shortage_list.text}')
-            exit()
+            # Log a BOUNDED snippet. This used to log `shortage_list.text` in
+            # full, which meant a ~6 KB Cloudflare challenge page was written to
+            # the task log at ERROR every single day for months.
+            snippet = (shortage_list.text or '')[:300].replace('\n', ' ')
+            challenged = (
+                shortage_list.status_code == 403
+                and 'just a moment' in (shortage_list.text or '').lower()
+            )
+            if challenged:
+                # Do not retry: the challenge is deterministic, and the default
+                # `retries: 1` otherwise burns a second attempt every run to
+                # reach the identical wall. AirflowFailException skips retries.
+                raise AirflowFailException(
+                    'ASHP is behind a Cloudflare managed challenge — HTTP {} from {} '
+                    '(cloudscraper {} cannot solve it; see the note at the top of this '
+                    'DAG for why, and for the three real ways out). This is an UPSTREAM '
+                    'ACCESS BLOCK, not a bug in this DAG and not a transient outage. '
+                    'Response began: {}'.format(
+                        shortage_list.status_code,
+                        landing_url,
+                        getattr(cloudscraper, '__version__', 'unknown'),
+                        snippet,
+                    )
+                )
+            raise AirflowException(
+                'ASHP website unreachable — HTTP {} from {}. Response began: {}'.format(
+                    shortage_list.status_code, landing_url, snippet
+                )
+            )
 
         ashp_drugs = []
         soup = BeautifulSoup(shortage_list.content, 'html.parser')
@@ -216,6 +258,15 @@ with dag:
             ndcs = ndcs[~ndcs['ndc_description'].isnull()]  # Remove shortages that have no associated NDCs
             load_df_to_pg(ndcs, "sagerx_lake", "ashp_shortage_list_ndcs", "replace", index=False)
         else:
-            logging.error('Drug shortage list not found')
-        
+            # Previously this only logged an error and let the task SUCCEED, so a
+            # page that fetched but parsed to nothing looked like a good run and
+            # silently left the warehouse holding whatever it held before.
+            raise AirflowException(
+                'ASHP returned HTTP 200 but no shortages parsed out of {} — the page '
+                'markup has probably changed (the parser keys off the ASP.NET id '
+                '"1_dsGridView"). Refusing to report success on an empty '
+                'extract.'.format(landing_url)
+            )
+
+
     extract_load_shortage_list() >> transform_task
