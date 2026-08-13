@@ -11,7 +11,6 @@ dag_id = "ncpdp"
 dag = create_dag(
     dag_id=dag_id,
     schedule="0 4 * * 1",  # 4am every Monday (NCI EVS posts updates following last Monday of month)
-    start_date=pendulum.yesterday(),
     catchup=False,
     concurrency=2,
 )

@@ -11,7 +11,6 @@ dag_id = "cms_hcris"
 dag = create_dag(
     dag_id=dag_id,
     schedule="0 4 * * *",
-    start_date=pendulum.yesterday(),
     catchup=False,
     concurrency=2,
 )

@@ -1,5 +1,6 @@
 import pendulum
 from airflow.decorators import dag
+from airflow_operator import DEFAULT_START_DATE
 from atcddd.dag_tasks import extract, load
 from common_dag_tasks import transform
 
@@ -8,7 +9,7 @@ dag_id = "atcddd"
 @dag(
     dag_id=dag_id,
     schedule_interval="0 3 15 * *",  # Runs on the 15th of each month at 3 AM
-    start_date=pendulum.today('UTC').add(days=-1),
+    start_date=DEFAULT_START_DATE,
     catchup=False
 )
 def atc_ddd():

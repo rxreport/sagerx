@@ -13,7 +13,6 @@ dag_id = "fda_unfinished"
 dag = create_dag(
     dag_id=dag_id,
     schedule= "0 4 * * *",  # run a 4:15am every day
-    start_date=pendulum.yesterday(),
     catchup=False,
     max_active_runs=1,
     concurrency=2,

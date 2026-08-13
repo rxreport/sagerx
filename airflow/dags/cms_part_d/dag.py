@@ -15,9 +15,11 @@ from airflow.hooks.subprocess import SubprocessHook
 
 import user_macros
 
+from airflow_operator import DEFAULT_START_DATE
+
 @dag(
     schedule="0 0 1 */3 *",
-    start_date=pendulum.yesterday(),
+    start_date=DEFAULT_START_DATE,
     catchup=False,
 )
 def cms_part_d():
