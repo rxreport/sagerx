@@ -36,6 +36,23 @@ def create_dag(dag_id,**kwargs) -> DAG:
         # default is pinned off here. This is what makes the fixed date safe,
         # not a tidy-up. A DAG wanting a backfill passes catchup=True itself.
         "catchup": False,
+        # A DAG-level run timeout, so a wedged task cannot block a DAG forever.
+        #
+        # This lived in `default_args` as a bare `60`, where it did NOTHING:
+        # default_args is applied to OPERATORS, and BaseOperator has no
+        # `dagrun_timeout` — it belongs on the DAG. So every DAG here has run
+        # without any run timeout at all. It matters most for `build_marts`,
+        # which chains dependency DAGs with `wait_for_completion=True`: one
+        # stuck extract and it waits indefinitely, holding the whole marts
+        # build behind it.
+        #
+        # 8 hours, not 60 minutes: a real `build_marts` run took ~3h on
+        # 2026-08-13 (rxclass alone spent 106 minutes on ~110k rate-limited
+        # API calls), so a one-hour ceiling would kill healthy runs. This is a
+        # backstop against a hang, not a performance budget — set it well above
+        # the slowest legitimate run, and pass `dagrun_timeout` explicitly for a
+        # DAG that needs a tighter or looser bound.
+        "dagrun_timeout": timedelta(hours=8),
         "description": f"Processes {dag_id} source",
     }
 
@@ -49,7 +66,6 @@ def create_dag(dag_id,**kwargs) -> DAG:
         "retry_delay": timedelta(minutes=5),
         "retrieve_dataset_function": get_dataset,
         "on_failure_callback": alert_slack_channel,
-        "dagrun_timeout":60
     }
 
     dag_args.update(kwargs)
@@ -66,6 +82,11 @@ def create_dag(dag_id,**kwargs) -> DAG:
     # default_args is applied to OPERATORS, which accept neither name; leaving a
     # stale `concurrency` there is harmless but pointless, so drop it too.
     default_args.pop("concurrency", None)
+    # Same reasoning, and the same trap this commit fixes: `dagrun_timeout` is a
+    # DAG argument, not an operator one. `dag_args.update(kwargs)` above already
+    # put a caller-supplied value where it takes effect; drop the operator copy
+    # so nobody reads default_args and concludes the timeout lives there.
+    default_args.pop("dagrun_timeout", None)
 
     dag = DAG(**dag_args,default_args=default_args)
 

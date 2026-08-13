@@ -49,6 +49,31 @@ OPERATOR_DEFAULT_RE = re.compile(r'"start_date"\s*:\s*DEFAULT_START_DATE')
 DEFAULT_CONST_RE = re.compile(r"DEFAULT_START_DATE\s*=\s*pendulum\.datetime\(")
 
 
+def _dict_body(text: str, assign_marker: str) -> str:
+    """Text of the dict literal assigned at `assign_marker`, braces excluded.
+
+    Deliberately brace-counting rather than regex: these dicts contain nested
+    calls and strings, and a `.*?}` would stop at the first inner brace.
+    Returns "" when the marker is absent, so a missing dict reads as empty
+    rather than as the whole file.
+    """
+    idx = text.find(assign_marker)
+    if idx == -1:
+        return ""
+    open_idx = text.find("{", idx)
+    if open_idx == -1:
+        return ""
+    depth = 0
+    for i in range(open_idx, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_idx + 1 : i]
+    return ""
+
+
 def scan(dags_dir: Path) -> tuple[list[str], int]:
     """Return (violations, files_scanned)."""
     violations: list[str] = []
@@ -92,6 +117,26 @@ def scan(dags_dir: Path) -> tuple[list[str], int]:
                 f"{operator}: create_dag must default catchup to False — "
                 f"airflow.cfg sets catchup_by_default = True, and a fixed "
                 f"start_date with catchup on backfills every missed interval"
+            )
+        # `dagrun_timeout` is a DAG argument. Sitting in default_args it is
+        # applied to OPERATORS, which have no such parameter, so it is silently
+        # inert — which is how every DAG here ran with no run timeout at all.
+        # Scope to the dict LITERALS, not "everything after the marker": the
+        # `default_args.pop("dagrun_timeout", None)` line that removes a
+        # caller-supplied copy lives further down and would otherwise read as
+        # the very bug this checks for.
+        dag_args_block = _dict_body(text, "dag_args =")
+        operator_args_block = _dict_body(text, "default_args = ")
+        if "dagrun_timeout" in operator_args_block:
+            violations.append(
+                f"{operator}: dagrun_timeout appears in default_args, where it "
+                f"applies to operators and does NOTHING. It belongs in dag_args."
+            )
+        if not re.search(r'"dagrun_timeout"\s*:\s*timedelta\(', dag_args_block):
+            violations.append(
+                f"{operator}: create_dag must set dagrun_timeout to a timedelta "
+                f"in dag_args — a bare int is not a duration, and no timeout at "
+                f"all lets a wedged task block a DAG forever"
             )
     else:
         violations.append(f"{operator}: missing")
