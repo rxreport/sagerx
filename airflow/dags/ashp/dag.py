@@ -12,7 +12,7 @@ import pandas as pd
 
 import pendulum
 
-from airflow_operator import create_dag
+from airflow_operator import create_dag, DEFAULT_START_DATE
 from airflow.exceptions import AirflowException, AirflowFailException
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 
@@ -56,7 +56,7 @@ dag_id = "ashp"
 dag = create_dag(
     dag_id=dag_id,
     schedule="0 4 * * *",
-    start_date=pendulum.yesterday(),
+    start_date=DEFAULT_START_DATE,
     catchup=False,
     concurrency=2,
 )

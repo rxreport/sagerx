@@ -1,6 +1,6 @@
 import pendulum
 
-from airflow_operator import create_dag
+from airflow_operator import create_dag, DEFAULT_START_DATE
 from airflow.utils.helpers import chain
 
 from common_dag_tasks import  extract, transform, get_ordered_sql_tasks, get_ds_folder
@@ -13,7 +13,7 @@ dag_id = "fda_unfinished"
 dag = create_dag(
     dag_id=dag_id,
     schedule= "0 4 * * *",  # run a 4:15am every day
-    start_date=pendulum.yesterday(),
+    start_date=DEFAULT_START_DATE,
     catchup=False,
     max_active_runs=1,
     concurrency=2,

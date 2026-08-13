@@ -11,6 +11,7 @@ dag_id = "dailymed_pharm_class"
 dag = create_dag(
     dag_id=dag_id,
     schedule= "0 5 * * *",  # run at 5am every day
+    catchup=False,
     max_active_runs=1,
     concurrency=2,
 )

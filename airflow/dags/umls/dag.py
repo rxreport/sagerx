@@ -2,13 +2,14 @@ import pendulum
 from airflow.decorators import dag
 from umls.dag_tasks import extract, load
 from common_dag_tasks import transform
+from airflow_operator import DEFAULT_START_DATE
 
 dag_id = "umls"
 
 @dag(
     dag_id=dag_id,
-    schedule_interval="0 3 15 * *",  # Runs on the 15th of each month at 3 AM
-    start_date=pendulum.today('UTC').add(days=-1),
+    schedule_interval="0 6 15 * *",  # Runs on the 15th of each month at 3 AM
+    start_date=DEFAULT_START_DATE,
     catchup=False
 )
 def umls():

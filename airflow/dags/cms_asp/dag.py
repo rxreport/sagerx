@@ -1,6 +1,6 @@
 import pendulum
 
-from airflow_operator import create_dag
+from airflow_operator import create_dag, DEFAULT_START_DATE
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 
 from common_dag_tasks import extract, transform, generate_sql_list, get_ds_folder
@@ -12,7 +12,7 @@ dag_id = "cms_asp"
 dag = create_dag(
     dag_id=dag_id,
     schedule="0 4 * * *",
-    start_date=pendulum.yesterday(),
+    start_date=DEFAULT_START_DATE,
     catchup=False,
     concurrency=2,
 )

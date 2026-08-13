@@ -24,6 +24,7 @@ dag = create_dag(
     # months in the past, so the DAG had not been scheduled since and would not
     # have been until 2027. FDA publishes this file every month.
     schedule="15 0 24 * *",
+    catchup=False,
     max_active_runs=1,
     concurrency=2,
 )

@@ -1,5 +1,5 @@
 import pendulum
-from airflow_operator import create_dag
+from airflow_operator import create_dag, DEFAULT_START_DATE
 from common_dag_tasks import  extract,transform, get_ds_folder
 from fda_enforcement.dag_tasks import  load_json
 # from airflow.operators.python import ShortCircuitOperator
@@ -11,7 +11,8 @@ dag_id = "fda_enforcement"
 dag = create_dag(
     dag_id=dag_id,
     schedule="0 4 * * 3",
-    start_date=pendulum.yesterday(),
+    catchup=False,
+    start_date=DEFAULT_START_DATE,
     max_active_runs=1,
     concurrency=2,
 )
