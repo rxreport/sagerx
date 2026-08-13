@@ -20,4 +20,17 @@ sagerx:
       dbname: sagerx
       schema: sagerx
 
-  target: dev
+  # `macros/get_custom_schema.sql` delegates to dbt's generate_schema_name_for_env,
+  # which honours the `+schema: sagerx` in dbt_project.yml ONLY when the target is
+  # named `prod`. Under any other target every model lands in `target.schema`
+  # (`sagerx_dev`) instead.
+  #
+  # This defaulted to a bare `dev`, and no DAG passes `--target`, so every
+  # scheduled dbt run in production wrote to `sagerx_dev` while `sagerx` — the
+  # schema dbt_project.yml names, the docs describe and consumers read — was last
+  # written by a manual prod run around 2026-04-28. Nothing failed: the transform
+  # tasks were green the whole time, into the wrong schema.
+  #
+  # Keep the default `dev` so a local `dbt run` still cannot touch `sagerx`;
+  # production sets DBT_TARGET=prod on the dbt container.
+  target: "{{ env_var('DBT_TARGET', 'dev') }}"

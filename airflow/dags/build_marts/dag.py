@@ -59,5 +59,13 @@ with dag:
         run_subprocess_command(['docker', 'exec', 'dbt', 'dbt', 'run', '--select', '+models/marts/ndc'], cwd='/dbt/sagerx')
         run_subprocess_command(['docker', 'exec', 'dbt', 'dbt', 'run', '--select', '+models/marts/classification'], cwd='/dbt/sagerx')
         run_subprocess_command(['docker', 'exec', 'dbt', 'dbt', 'run', '--select', '+models/marts/products'], cwd='/dbt/sagerx')
+        # models/marts/ has FOUR directories — ndc, classification, products and
+        # pricing — and pricing was never selected here, so `pricing` /
+        # `pricing_historical` were the only marts this DAG did not build. Their
+        # upstream `int_nadac_pricing` refreshed weekly with the nadac DAG while
+        # the mart on top of it stayed frozen, which is what served a NADAC price
+        # 40% below the lake. Adding a mart directory without adding it here
+        # silently reproduces that.
+        run_subprocess_command(['docker', 'exec', 'dbt', 'dbt', 'run', '--select', '+models/marts/pricing'], cwd='/dbt/sagerx')
 
     execute_external_dag_list() >> transform_tasks()
