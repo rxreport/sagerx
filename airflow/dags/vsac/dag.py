@@ -11,12 +11,13 @@ from airflow.hooks.postgres_hook import PostgresHook
 
 from common_dag_tasks import run_subprocess_command, extract
 from vsac.dag_tasks import main_execution
+from airflow_operator import DEFAULT_START_DATE
 
 
 
 @dag(
     schedule="0 3 * * *",
-    start_date=pendulum.yesterday(),
+    start_date=DEFAULT_START_DATE,
     catchup=False,
 )
 def vsac():

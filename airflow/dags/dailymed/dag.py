@@ -9,10 +9,11 @@ from airflow.hooks.subprocess import SubprocessHook
 from lxml import etree
 
 from sagerx import create_path, load_df_to_pg
+from airflow_operator import DEFAULT_START_DATE
 
 @dag(
     schedule="0 0 10 * *",
-    start_date=pendulum.yesterday(),
+    start_date=DEFAULT_START_DATE,
     catchup=False
 )
 def dailymed():

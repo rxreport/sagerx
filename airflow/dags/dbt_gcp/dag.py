@@ -21,7 +21,7 @@ is a separate upstream decision (it is inherited from coderxio/sagerx).
 """
 import pendulum
 
-from airflow_operator import create_dag
+from airflow_operator import create_dag, DEFAULT_START_DATE
 
 from airflow.providers.google.cloud.transfers.postgres_to_gcs import PostgresToGCSOperator
 from airflow.providers.google.cloud.transfers.gcs_to_bigquery import GCSToBigQueryOperator
@@ -36,7 +36,7 @@ dag_id = "dbt_gcp"
 dag = create_dag(
     dag_id=dag_id,
     schedule="0 4 * * *",
-    start_date=pendulum.yesterday(),
+    start_date=DEFAULT_START_DATE,
     catchup=False,
     concurrency=2,
 )

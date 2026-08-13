@@ -1,6 +1,6 @@
 import pendulum
 
-from airflow_operator import create_dag
+from airflow_operator import create_dag, DEFAULT_START_DATE
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.decorators import task
 
@@ -12,7 +12,7 @@ dag_id = "fda_unii"
 dag = create_dag(
     dag_id=dag_id,
     schedule="0 4 * * *",
-    start_date=pendulum.yesterday(),
+    start_date=DEFAULT_START_DATE,
     catchup=False,
     concurrency=2,
 )

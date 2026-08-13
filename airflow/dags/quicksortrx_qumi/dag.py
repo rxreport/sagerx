@@ -1,6 +1,6 @@
 import pendulum
 
-from airflow_operator import create_dag
+from airflow_operator import create_dag, DEFAULT_START_DATE
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 
 from common_dag_tasks import  extract, transform, generate_sql_list, get_ds_folder
@@ -10,8 +10,8 @@ dag_id = "quicksortrx_qumi"
 
 dag = create_dag(
     dag_id=dag_id,
-    schedule="0 3 15 * *",  # Runs on the 15th of each month at 3 AM
-    start_date=pendulum.yesterday(),
+    schedule="0 8 15 * *",  # Runs on the 15th of each month at 3 AM
+    start_date=DEFAULT_START_DATE,
     catchup=False,
     concurrency=2,
 )
