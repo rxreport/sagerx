@@ -53,7 +53,7 @@ pricing_historical as (
         pack_size.pack_size,
         pack_size.unit_of_measure,
         pack_size.saleable_unit,
-        nadac_historical.ndc_description as nadac_description,
+        nadac_historical.nadac_description,
         mccpd.medication_name as mccpd_description,
         pack_size.fda_package_description
     from all_ndcs
