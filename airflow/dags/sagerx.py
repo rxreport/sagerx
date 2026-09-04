@@ -171,27 +171,29 @@ def get_sql_list(pre_str: str = "", ds_path: Path = Path.cwd()) -> list:
 
 # Slack webhook function
 def alert_slack_channel(context):
-    slack_api = Variable.get("slack_api")
-    if slack_api:
-        msg = """
-                :red_circle: Task Failed
-                *Task*: {task}  
-                *Dag*: {dag} 
-                *Execution Time*: {exec_date}  
-                *Log Url*: {log_url} 
-                """.format(
-            task=context.get("task_instance").task_id,
-            dag=context.get("task_instance").dag_id,
-            ti=context.get("task_instance"),
-            exec_date=context.get("execution_date"),
-            log_url=context.get("task_instance").log_url,
-        )
+    slack_api = Variable.get("slack_api", default_var=None)
+    if not slack_api:
+        logging.info("Variable 'slack_api' is not set; skipping Slack failure alert")
+        return
+    msg = """
+            :red_circle: Task Failed
+            *Task*: {task}  
+            *Dag*: {dag} 
+            *Execution Time*: {exec_date}  
+            *Log Url*: {log_url} 
+            """.format(
+        task=context.get("task_instance").task_id,
+        dag=context.get("task_instance").dag_id,
+        ti=context.get("task_instance"),
+        exec_date=context.get("execution_date"),
+        log_url=context.get("task_instance").log_url,
+    )
 
-        SlackWebhookOperator(
-            task_id="alert_slack_channel",
-            http_conn_id="slack",
-            message=msg,
-        ).execute(context=None)
+    SlackWebhookOperator(
+        task_id="alert_slack_channel",
+        http_conn_id="slack",
+        message=msg,
+    ).execute(context=None)
 
 def load_df_to_pg(df,schema_name:str,table_name:str,if_exists:str,dtype_name:str="",index:bool=True, 
                   create_index: bool = False, index_columns: list = None) -> None:

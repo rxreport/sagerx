@@ -5,6 +5,7 @@ import pendulum
 from sagerx import get_dataset, read_sql_file, get_sql_list, alert_slack_channel
 
 from airflow.decorators import dag, task
+from airflow.exceptions import AirflowFailException
 
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 
@@ -36,19 +37,34 @@ def nadac():
                 self.dataset_dict = self._build_dataset()
 
             def _build_dataset(self):
-                url = "https://data.medicaid.gov/api/1/search/?sort=modified&sort-order=desc&theme=National%20Average%20Drug%20Acquisition%20Cost"
+                url = "https://data.medicaid.gov/api/1/search/?sort=modified&sort-order=desc&fulltext=NADAC"
                 response = requests.get(url)
                 response.raise_for_status()
                 result_json = response.json()["results"]
+                # DKAN serializes an empty result set as a list ([]) but a
+                # non-empty one as a dict keyed by dataset id - handle both
+                if isinstance(result_json, dict):
+                    results = result_json.values()
+                else:
+                    results = result_json
                 dataset_dict = {}
-                for key, value in result_json.items():
+                for value in results:
                     dataset_dict[value["title"]] = value["distribution"][0][
                         "downloadURL"
                     ]
+                if not dataset_dict:
+                    raise AirflowFailException(
+                        f"NADAC dataset search returned no results ({url} -> {result_json!r})"
+                    )
                 return dataset_dict
 
             def get_download_url(self, year):
                 title = f"NADAC (National Average Drug Acquisition Cost) {year}"
+                if title not in self.dataset_dict:
+                    raise AirflowFailException(
+                        f"Expected dataset title '{title}' not found in search results; "
+                        f"got: {sorted(self.dataset_dict)}"
+                    )
                 url = self.dataset_dict[title]
                 self.title = title
                 self.url = url
