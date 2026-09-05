@@ -1,0 +1,507 @@
+{
+ "meta": {
+  "disclaimer": "Do not rely on openFDA to make decisions regarding medical care. While we make every effort to ensure that data is accurate, you should assume all results are unvalidated. We may limit or otherwise restrict your access to the API in line with our Terms of Service.",
+  "terms": "https://open.fda.gov/terms/",
+  "license": "https://open.fda.gov/license/",
+  "last_updated": "2026-09-04",
+  "results": {
+   "skip": 0,
+   "limit": 1000,
+   "total": 1634
+  }
+ },
+ "results": [
+  {
+   "discontinued_date": "11/19/2025",
+   "update_type": "New",
+   "initial_posting_date": "11/19/2025",
+   "package_ndc": "0172-5241-60",
+   "generic_name": "Anagrelide Hydrochloride Capsule",
+   "contact_info": "800-545-8800",
+   "related_info": "A business decision was made to discontinue manufacture of the drug.",
+   "update_date": "11/19/2025",
+   "therapeutic_category": [
+    "Hematology"
+   ],
+   "dosage_form": "Capsule",
+   "presentation": "Anagrelide Hydrochloride, Capsule, 0.5 mg (NDC 0172-5241-60)",
+   "company_name": "Teva Pharmaceuticals USA, Inc.",
+   "status": "To Be Discontinued"
+  },
+  {
+   "update_type": "Revised",
+   "initial_posting_date": "04/07/2020",
+   "package_ndc": "23155-473-42",
+   "generic_name": "Furosemide Injection",
+   "contact_info": "855-228-9470",
+   "availability": "Unavailable",
+   "related_info": "Estimated recovery: End October 2026; Manufacturing delay",
+   "openfda": {
+    "application_number": [
+     "ANDA203428"
+    ],
+    "brand_name": [
+     "FUROSEMIDE"
+    ],
+    "generic_name": [
+     "FUROSEMIDE"
+    ],
+    "manufacturer_name": [
+     "Heritage Pharmaceuticals Inc. d/b/a Avet Pharmaceuticals Inc."
+    ],
+    "product_ndc": [
+     "23155-473"
+    ],
+    "product_type": [
+     "HUMAN PRESCRIPTION DRUG"
+    ],
+    "route": [
+     "INTRAVENOUS"
+    ],
+    "substance_name": [
+     "FUROSEMIDE"
+    ],
+    "rxcui": [
+     "1719286",
+     "1719290",
+     "1719291"
+    ],
+    "spl_id": [
+     "c14acada-333e-43bb-b1cf-81d569e3e918"
+    ],
+    "spl_set_id": [
+     "1b9117d5-0dd9-4577-a1fd-bb0aaf7e68ec"
+    ],
+    "package_ndc": [
+     "23155-473-31",
+     "23155-473-41",
+     "23155-473-32",
+     "23155-473-42",
+     "23155-473-43",
+     "23155-473-33",
+     "23155-473-44",
+     "23155-473-45"
+    ],
+    "nui": [
+     "N0000175366",
+     "N0000175590"
+    ],
+    "pharm_class_pe": [
+     "Increased Diuresis at Loop of Henle [PE]"
+    ],
+    "pharm_class_epc": [
+     "Loop Diuretic [EPC]"
+    ],
+    "unii": [
+     "7LXU5N7ZO5"
+    ]
+   },
+   "update_date": "09/01/2026",
+   "therapeutic_category": [
+    "Cardiovascular"
+   ],
+   "dosage_form": "Injection",
+   "presentation": "Furosemide, Injection, 10 mg/1 mL (NDC 23155-473-42)",
+   "company_name": "Avet Pharmaceuticals, Inc.",
+   "shortage_reason": "Other",
+   "status": "Current"
+  },
+  {
+   "update_type": "New",
+   "initial_posting_date": "02/20/2018",
+   "package_ndc": "31722-277-34",
+   "generic_name": "Bupivacaine Hydrochloride Injection",
+   "contact_info": "732-529-0430, customerservice@camberpharma.com",
+   "availability": "Available",
+   "openfda": {
+    "application_number": [
+     "ANDA217821"
+    ],
+    "brand_name": [
+     "BUPIVACAINE HYDROCHLORIDE"
+    ],
+    "generic_name": [
+     "BUPIVACAINE HYDROCHLORIDE"
+    ],
+    "manufacturer_name": [
+     "Camber Pharmaceuticals, Inc."
+    ],
+    "product_ndc": [
+     "31722-277",
+     "31722-275",
+     "31722-276"
+    ],
+    "product_type": [
+     "HUMAN PRESCRIPTION DRUG"
+    ],
+    "route": [
+     "EPIDURAL",
+     "RETROBULBAR"
+    ],
+    "substance_name": [
+     "BUPIVACAINE HYDROCHLORIDE"
+    ],
+    "rxcui": [
+     "1724786",
+     "1724787",
+     "1724880",
+     "1724884",
+     "1725078",
+     "1725082"
+    ],
+    "spl_id": [
+     "4ea16f8e-77de-3ba7-e063-6394a90a5667"
+    ],
+    "spl_set_id": [
+     "0e552e3a-cf52-4d74-9381-6cc1b29b4c90"
+    ],
+    "package_ndc": [
+     "31722-275-10",
+     "31722-275-31",
+     "31722-275-32",
+     "31722-275-30",
+     "31722-275-33",
+     "31722-275-34",
+     "31722-275-35",
+     "31722-276-10",
+     "31722-276-31",
+     "31722-276-32",
+     "31722-276-30",
+     "31722-276-33",
+     "31722-276-34",
+     "31722-277-10",
+     "31722-277-31",
+     "31722-277-32",
+     "31722-277-30",
+     "31722-277-33",
+     "31722-277-34"
+    ],
+    "unii": [
+     "7TQO7W3VT8"
+    ]
+   },
+   "update_date": "07/17/2026",
+   "therapeutic_category": [
+    "Anesthesia"
+   ],
+   "dosage_form": "Injection",
+   "presentation": "Bupivacaine Hydrochloride, Injection, 7.5 mg/1 mL (NDC 31722-277-34)",
+   "company_name": "Aspiro Pharma Limited",
+   "status": "Current"
+  },
+  {
+   "update_type": "Reverified",
+   "initial_posting_date": "03/21/2023",
+   "package_ndc": "0009-4073-04",
+   "generic_name": "Clindamycin Phosphate Injection",
+   "related_info_link": "https://www.accessdata.fda.gov/scripts/drugshortages/dsp_ActiveIngredientDetails.cfm?AI=Clindamycin%20Phosphate%20Injection&st=d",
+   "contact_info": "800-533-4535",
+   "availability": "Unavailable",
+   "related_info": "Discontinuation of the manufacture of the drug",
+   "openfda": {
+    "application_number": [
+     "NDA050441"
+    ],
+    "brand_name": [
+     "CLEOCIN PHOSPHATE"
+    ],
+    "generic_name": [
+     "CLINDAMYCIN PHOSPHATE"
+    ],
+    "manufacturer_name": [
+     "Pharmacia & Upjohn Company LLC"
+    ],
+    "product_ndc": [
+     "0009-4073",
+     "0009-3051",
+     "0009-5095"
+    ],
+    "product_type": [
+     "HUMAN PRESCRIPTION DRUG"
+    ],
+    "route": [
+     "INTRAMUSCULAR",
+     "INTRAVENOUS"
+    ],
+    "substance_name": [
+     "CLINDAMYCIN PHOSPHATE"
+    ],
+    "rxcui": [
+     "1737244",
+     "1737245",
+     "1737578",
+     "1737579",
+     "1737581",
+     "1737582"
+    ],
+    "spl_id": [
+     "8d0dac99-6ec9-4648-8ae1-0cc2894d56cf"
+    ],
+    "spl_set_id": [
+     "a0a2eff7-b7de-42fe-8e5a-0cfbed38bb4b"
+    ],
+    "package_ndc": [
+     "0009-3051-01",
+     "0009-3051-02",
+     "0009-4073-03",
+     "0009-4073-04",
+     "0009-5095-05",
+     "0009-5095-06"
+    ],
+    "unii": [
+     "EH6D7113I8"
+    ]
+   },
+   "update_date": "08/24/2026",
+   "therapeutic_category": [
+    "Anti-Infective"
+   ],
+   "dosage_form": "Injection",
+   "presentation": "Cleocin Phosphate, Injection, 600 mg/4 mL (150 mg/mL) (NDC 0009-4073-04)",
+   "company_name": "Pfizer Inc.",
+   "shortage_reason": "Discontinuation of the manufacture of the drug",
+   "status": "Current"
+  },
+  {
+   "update_type": "Revised",
+   "initial_posting_date": "01/24/2025",
+   "change_date": "08/27/2026",
+   "package_ndc": "82154-0451-4",
+   "generic_name": "Peginterferon alfa-2a Injection",
+   "contact_info": "800-506-8501, email: medinfo.us@pharmaand.com",
+   "resolved_note": "(NDC 82154-0451-4) \u2013 Available",
+   "update_date": "08/27/2026",
+   "therapeutic_category": [
+    "Antiviral"
+   ],
+   "dosage_form": "Injection",
+   "presentation": "Pegasys, Injection, 180 ug/.5 mL (NDC 82154-0451-4)",
+   "company_name": "pharmaand GmbH (pharma&)",
+   "status": "Resolved"
+  },
+  {
+   "discontinued_date": "04/28/2023",
+   "update_type": "New",
+   "initial_posting_date": "04/28/2023",
+   "change_date": "04/28/2023",
+   "package_ndc": "0069-4310-71",
+   "generic_name": "Prazosin Hydrochloride Capsule",
+   "contact_info": "800-533-4535",
+   "related_info": "Discontinuation of the manufacture of the drug. Supply expected to exhaust in August 2023",
+   "update_date": "04/28/2023",
+   "therapeutic_category": [
+    "Cardiovascular"
+   ],
+   "dosage_form": "Capsule",
+   "presentation": "Minipress, Capsule, 1 mg (NDC 0069-4310-71)",
+   "company_name": "Pfizer Inc.",
+   "status": "To Be Discontinued"
+  },
+  {
+   "update_type": "Reverified",
+   "initial_posting_date": "08/03/2022",
+   "package_ndc": "0378-4415-01",
+   "generic_name": "Flurazepam Hydrochloride Capsule",
+   "contact_info": "1-844-874-7464",
+   "availability": "Unavailable",
+   "related_info": "Anticipated availability: Q4 2026; Delay is due to manufacturing delays at the contract manufacturing facility.",
+   "update_date": "09/01/2026",
+   "therapeutic_category": [
+    "Neurology",
+    "Other"
+   ],
+   "dosage_form": "Capsule",
+   "presentation": "Flurazepam Hydrochloride, Capsule, 15 mg (NDC 0378-4415-01)",
+   "company_name": "Rising Pharma Holdings, Inc.",
+   "shortage_reason": "Regulatory delay",
+   "status": "Current"
+  },
+  {
+   "update_type": "Reverified",
+   "initial_posting_date": "05/30/2025",
+   "package_ndc": "0641-6052-25",
+   "generic_name": "Meperidine Hydrochloride Injection",
+   "contact_info": "800-631-2174",
+   "availability": "Available",
+   "related_info": "Additional lots are scheduled to be manufactured.  Product will be made available as it is released.",
+   "openfda": {
+    "application_number": [
+     "ANDA080445"
+    ],
+    "brand_name": [
+     "MEPERIDINE HYDROCHLORIDE"
+    ],
+    "generic_name": [
+     "MEPERIDINE HYDROCHLORIDE"
+    ],
+    "manufacturer_name": [
+     "Hikma Pharmaceuticals USA Inc."
+    ],
+    "product_ndc": [
+     "0641-6052",
+     "0641-6053",
+     "0641-6054"
+    ],
+    "product_type": [
+     "HUMAN PRESCRIPTION DRUG"
+    ],
+    "route": [
+     "INTRAMUSCULAR",
+     "INTRAVENOUS",
+     "SUBCUTANEOUS"
+    ],
+    "substance_name": [
+     "MEPERIDINE HYDROCHLORIDE"
+    ],
+    "rxcui": [
+     "861476",
+     "1665685",
+     "1665697"
+    ],
+    "spl_id": [
+     "9566d54d-7343-4695-94ff-8b5f2d384c81"
+    ],
+    "spl_set_id": [
+     "e0e998da-f056-4fce-be8e-ed60cf3b461b"
+    ],
+    "package_ndc": [
+     "0641-6053-01",
+     "0641-6053-25",
+     "0641-6054-01",
+     "0641-6054-25",
+     "0641-6052-01",
+     "0641-6052-25"
+    ],
+    "unii": [
+     "N8E7F7Q170"
+    ]
+   },
+   "update_date": "09/03/2026",
+   "therapeutic_category": [
+    "Analgesia/Addiction"
+   ],
+   "dosage_form": "Injection",
+   "presentation": "Meperidine Hydrochloride, Injection, 25 mg/1 mL (NDC 0641-6052-25)",
+   "company_name": "Hikma Pharmaceuticals USA, Inc.",
+   "status": "Current"
+  },
+  {
+   "discontinued_date": "04/21/2026",
+   "update_type": "New",
+   "initial_posting_date": "04/21/2026",
+   "package_ndc": "16729-239-93",
+   "generic_name": "Dexmedetomidine Hydrochloride Injection",
+   "contact_info": "866-941-7875, option 2",
+   "related_info": "Discontinuation of the manufacture of the drug",
+   "openfda": {
+    "application_number": [
+     "ANDA204023"
+    ],
+    "brand_name": [
+     "DEXMEDETOMIDINE"
+    ],
+    "generic_name": [
+     "DEXMEDETOMIDINE"
+    ],
+    "manufacturer_name": [
+     "Accord Healthcare Inc."
+    ],
+    "product_ndc": [
+     "16729-239"
+    ],
+    "product_type": [
+     "HUMAN PRESCRIPTION DRUG"
+    ],
+    "route": [
+     "INTRAVENOUS"
+    ],
+    "substance_name": [
+     "DEXMEDETOMIDINE HYDROCHLORIDE"
+    ],
+    "rxcui": [
+     "309710"
+    ],
+    "spl_id": [
+     "2de0daf8-b7a3-1dca-e063-6394a90a4d0a"
+    ],
+    "spl_set_id": [
+     "2b9881f0-4a66-660f-e054-00144ff88e88"
+    ],
+    "package_ndc": [
+     "16729-239-30",
+     "16729-239-93"
+    ],
+    "unii": [
+     "1018WH7F9I"
+    ]
+   },
+   "update_date": "04/21/2026",
+   "therapeutic_category": [
+    "Anesthesia"
+   ],
+   "dosage_form": "Injection",
+   "presentation": "Dexmedetomidine Hydrochloride, Injection, 100 ug/1 mL (NDC 16729-239-93)",
+   "company_name": "Accord Healthcare Inc.",
+   "status": "To Be Discontinued"
+  },
+  {
+   "update_type": "Reverified",
+   "initial_posting_date": "11/23/2021",
+   "package_ndc": "0641-6147-10",
+   "generic_name": "Sterile Water Injection",
+   "contact_info": "800-631-2174",
+   "availability": "Available",
+   "related_info": "Additional lots will be scheduled for manufacturing. Product will be made available as it is released.",
+   "openfda": {
+    "application_number": [
+     "ANDA206369"
+    ],
+    "brand_name": [
+     "STERILE WATER"
+    ],
+    "generic_name": [
+     "WATER"
+    ],
+    "manufacturer_name": [
+     "Hikma Pharmaceuticals USA Inc."
+    ],
+    "product_ndc": [
+     "0641-6147"
+    ],
+    "product_type": [
+     "HUMAN PRESCRIPTION DRUG"
+    ],
+    "route": [
+     "INTRAMUSCULAR",
+     "INTRAVENOUS",
+     "SUBCUTANEOUS"
+    ],
+    "substance_name": [
+     "WATER"
+    ],
+    "spl_id": [
+     "081540ac-58cf-437f-ba1b-86d5264ec3dc"
+    ],
+    "spl_set_id": [
+     "78ef7ad3-451d-43d0-a9b6-5cf0aadca003"
+    ],
+    "package_ndc": [
+     "0641-6147-01",
+     "0641-6147-10",
+     "0641-6147-25"
+    ],
+    "unii": [
+     "059QF0KO0R"
+    ]
+   },
+   "update_date": "08/13/2026",
+   "therapeutic_category": [
+    "Other"
+   ],
+   "dosage_form": "Injection",
+   "presentation": "Sterile Water, Injection, 1 mL/1 mL (NDC 0641-6147-10)",
+   "company_name": "Hikma Pharmaceuticals USA, Inc.",
+   "status": "Current"
+  }
+ ]
+}

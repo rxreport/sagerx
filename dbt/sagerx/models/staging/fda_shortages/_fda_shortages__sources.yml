@@ -1,0 +1,66 @@
+version: 2
+
+sources:
+  - name: fda_shortages
+    description: >
+      FDA drug-shortage database, via openFDA
+      (https://api.fda.gov/drug/shortages.json). The durable replacement
+      source for the drug-shortage signal the `ashp` DAG can no longer
+      scrape (ashp.org is behind a Cloudflare managed challenge). One row
+      per package NDC per company per shortage report; the full dataset is
+      reloaded daily by the fda_shortages DAG (~1.6k rows as of 2026-09-05).
+    schema: sagerx_lake
+    tables:
+      - name: fda_shortages
+        description: >
+          Full-replace load of every record the endpoint serves. Date
+          columns arrive as MM/DD/YYYY text; `therapeutic_category` arrives
+          as JSON text (a list); `openfda` is a JSON object column with the
+          openFDA identity harmonisation (brand/generic name, product and
+          package NDCs, SPL ids, UNII, route) and is NULL where openFDA
+          could not match the record.
+        columns:
+          - name: generic_name
+            description: The generic/established name of the product in shortage.
+          - name: status
+            description: >
+              Shortage status. Observed domain 2026-09-05: 'Current',
+              'To Be Discontinued', 'Resolved'.
+          - name: update_type
+            description: >
+              What the latest update to this record was. Observed domain
+              2026-09-05: 'New', 'Revised', 'Reverified'.
+          - name: update_date
+            description: Date of the latest update to this record (MM/DD/YYYY text).
+          - name: initial_posting_date
+            description: Date FDA first posted the record (MM/DD/YYYY text).
+          - name: package_ndc
+            description: The package NDC (hyphenated) the row describes.
+          - name: company_name
+            description: The company reporting on this presentation.
+          - name: presentation
+            description: The product presentation, e.g. name, form, strength and NDC.
+          - name: contact_info
+            description: Company contact information (usually a phone number).
+          - name: therapeutic_category
+            description: JSON text array of therapeutic categories.
+          - name: dosage_form
+            description: Dosage form; occasionally absent.
+          - name: availability
+            description: Free-text availability/resupply information.
+          - name: shortage_reason
+            description: Free-text reason for the shortage, where given.
+          - name: related_info
+            description: Additional free-text information.
+          - name: related_info_link
+            description: URL with further information, where given.
+          - name: discontinued_date
+            description: >
+              Date the presentation was or will be discontinued
+              (MM/DD/YYYY text); set on 'To Be Discontinued' rows.
+          - name: change_date
+            description: Rarely-set change date (MM/DD/YYYY text).
+          - name: resolved_note
+            description: Rarely-set note accompanying a resolution.
+          - name: openfda
+            description: openFDA identity harmonisation object; NULL when unmatched.
