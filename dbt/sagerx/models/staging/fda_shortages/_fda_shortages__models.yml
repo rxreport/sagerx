@@ -1,0 +1,72 @@
+version: 2
+
+models:
+  - name: stg_fda_shortages__shortages
+    description: >
+      FDA drug-shortage records, typed: dates cast from MM/DD/YYYY text,
+      therapeutic_category cast to jsonb. One row per source record. There
+      is NO natural unique key — even (package_ndc, company_name,
+      initial_posting_date) had 4 duplicates across the 1634 records
+      observed 2026-09-05 — so no uniqueness is asserted. NOT a drop-in
+      replacement for stg_ashp__current_drug_shortages: different dataset,
+      different grain (FDA reports per package NDC per company; ASHP
+      reported per shortage bulletin), different semantics.
+    columns:
+      - name: generic_name
+        description: The generic/established name of the product in shortage.
+        tests:
+          - not_null
+      - name: status
+        description: >
+          Shortage status. Observed domain 2026-09-05: 'Current',
+          'To Be Discontinued', 'Resolved'.
+        tests:
+          - not_null
+      - name: update_type
+        description: >
+          What the latest update to this record was. Observed domain
+          2026-09-05: 'New', 'Revised', 'Reverified'.
+        tests:
+          - not_null
+      - name: update_date
+        description: Date of the latest update to this record.
+        tests:
+          - not_null
+      - name: initial_posting_date
+        description: Date FDA first posted the record.
+        tests:
+          - not_null
+      - name: package_ndc
+        description: The package NDC (hyphenated) the row describes.
+        tests:
+          - not_null
+      - name: company_name
+        description: The company reporting on this presentation.
+        tests:
+          - not_null
+      - name: presentation
+        description: The product presentation, e.g. name, form, strength and NDC.
+        tests:
+          - not_null
+      - name: contact_info
+        description: Company contact information (usually a phone number).
+      - name: therapeutic_category
+        description: Therapeutic categories (jsonb array).
+      - name: dosage_form
+        description: Dosage form; occasionally absent upstream.
+      - name: availability
+        description: Free-text availability/resupply information.
+      - name: shortage_reason
+        description: Free-text reason for the shortage, where given.
+      - name: related_info
+        description: Additional free-text information.
+      - name: related_info_link
+        description: URL with further information, where given.
+      - name: discontinued_date
+        description: Date the presentation was or will be discontinued.
+      - name: change_date
+        description: Rarely-set change date.
+      - name: resolved_note
+        description: Rarely-set note accompanying a resolution.
+      - name: openfda
+        description: openFDA identity harmonisation object; NULL when unmatched.
