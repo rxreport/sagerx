@@ -7,10 +7,16 @@ from xml.etree import ElementTree as ET
 from common_dag_tasks import get_umls_ticket
 from airflow.models import Variable
 from airflow.decorators import task
-from sagerx import load_df_to_pg
+from sagerx import load_df_to_pg, http_session, DEFAULT_HTTP_TIMEOUT
 
 # constants
 api_key = Variable.get("umls_api")
+
+# ⚠ One session for every call in this module. The four call sites below used a
+# bare `requests.get` — no retry, no timeout — and this DAG loops over hundreds of
+# OIDs, so a single reset peer killed the whole run (2026-09-08, and 08-26/08-28
+# before it). See `http_session` in sagerx.py for why no method list is passed.
+_session = http_session()
 
 # function to retrieve tag values for a given tag name
 def get_tag_values(tag_name):
@@ -21,7 +27,7 @@ def get_tag_values(tag_name):
         "Accept": "application/xml"
     }
     try:
-        response = requests.get(f"https://vsac.nlm.nih.gov/vsac/tagName/{tag_name}/tagValues", headers=headers)
+        response = _session.get(f"https://vsac.nlm.nih.gov/vsac/tagName/{tag_name}/tagValues", headers=headers, timeout=DEFAULT_HTTP_TIMEOUT)
         response.raise_for_status()  # This will raise an exception for HTTP errors
         return response.text
     except requests.exceptions.RequestException as e:
@@ -49,7 +55,7 @@ def get_described_value_set_ids(tag_name, tag_value):
         "Authorization": f"Basic {base64_encoded_credentials}",
         "Accept": "application/xml"
     }
-    response = requests.get(f"https://vsac.nlm.nih.gov/vsac/svs/RetrieveMultipleValueSets?tagName={tag_name}&tagValue={tag_value}", headers=headers)
+    response = _session.get(f"https://vsac.nlm.nih.gov/vsac/svs/RetrieveMultipleValueSets?tagName={tag_name}&tagValue={tag_value}", headers=headers, timeout=DEFAULT_HTTP_TIMEOUT)
     root = ET.fromstring(response.text)
     value_set_ids = [value_set.get('ID') for value_set in root.findall('.//ns0:DescribedValueSet', namespaces={'ns0': 'urn:ihe:iti:svs:2008'})]
     return value_set_ids
@@ -69,7 +75,7 @@ processed_oids = set()  # to keep track of processed OIDs and avoid infinite loo
 def get_descendants(self, source, code):
     ticket = get_umls_ticket()
     url = f"{self.SERVICE}/rest/content/current/source/{source}/{code}/descendants?ticket={ticket}"
-    response = requests.get(url, headers={"User-Agent": "python"})
+    response = _session.get(url, headers={"User-Agent": "python"}, timeout=DEFAULT_HTTP_TIMEOUT)
     if response.status_code != 200:
         print(f"Error fetching descendants: {response.status_code} - {response.text}")
         return []
@@ -84,7 +90,7 @@ def retrieve_value_set(oid):
         "Authorization": f"Basic {base64_encoded_credentials}",
         "Accept": "application/fhir+json"
     }
-    response = requests.get(f"https://cts.nlm.nih.gov/fhir/ValueSet/{oid}", headers=headers)
+    response = _session.get(f"https://cts.nlm.nih.gov/fhir/ValueSet/{oid}", headers=headers, timeout=DEFAULT_HTTP_TIMEOUT)
     return response.json()
 
 # convert the JSON response to a dataframe
