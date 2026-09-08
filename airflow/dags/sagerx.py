@@ -1,4 +1,6 @@
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import pandas as pd
 import time
 import re
@@ -408,3 +410,44 @@ def free_text_to_snake(name: str) -> str:
     name = re.sub(r"[^0-9a-zA-Z_]", "_", name)
     name = re.sub(r"_+", "_", name)
     return name.lower().strip("_")
+
+
+# ── HTTP with retries and a TIMEOUT ──────────────────────────────────────────
+#
+# WHY: a bare `requests.get` has NO timeout and NO retry, so one dropped
+# connection kills a whole DAG run. Measured 2026-09-08: the `vsac` DAG failed
+# with `ConnectionResetError(104, 'Connection reset by peer')` from
+# cts.nlm.nih.gov part-way through its OID loop — and it had failed the same way
+# on 08-26 and 08-28 while succeeding in between. That is the shape of a DAG that
+# loops over hundreds of requests: the chance that AT LEAST ONE is reset grows
+# with the loop, so the run flaps rather than failing honestly. Since the
+# warehouse DAG-health beat now pages on a red DAG, a flapping run is not just
+# noise — it is what teaches people to ignore the alarm.
+#
+# ⚠ NO method restriction is passed. urllib3 renamed `method_whitelist` to
+# `allowed_methods` in 1.26, so naming either one pins this file to a urllib3
+# version (the image is on 1.26.14 today); the default already retries idempotent
+# methods, which is every call here.
+#
+# ⚠ A timeout is NOT optional. Without one a hung peer blocks the worker slot
+# until Airflow's own dagrun_timeout (8h) fires — a stall that looks like a slow
+# source rather than a dead one.
+DEFAULT_HTTP_TIMEOUT = 60
+
+def http_session(total: int = 5, backoff_factor: float = 1.0) -> requests.Session:
+    """A requests Session that retries connection errors and 429/5xx with
+    exponential backoff. Use it for any external API a DAG loops over."""
+    session = requests.Session()
+    retry = Retry(
+        total=total,
+        connect=total,
+        read=total,
+        status=total,
+        backoff_factor=backoff_factor,
+        status_forcelist=(429, 500, 502, 503, 504),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
