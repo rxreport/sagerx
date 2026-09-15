@@ -284,20 +284,44 @@ def fetch_json(url):
 
 def concurrent_api_calls(url, max_retries=3, initial_delay=1):
     """
-    For a given concept dict that includes 'rxcui', call the rxclass API
-    to retrieve class info. Implements retry logic to handle HTTP errors.
+    Call the rxclass API for one URL, retrying on rate limits and transport
+    errors. Returns {"url", "response"} on success, or None for a concept that
+    could not be fetched.
+
+    EVERY ERROR PATH HERE RAISED `NameError: name 'rxcui' is not defined`.
+    Five log lines interpolated `rxcui`, which is neither a parameter nor
+    otherwise in scope — a leftover from when this took a concept dict rather
+    than a URL (the old docstring still said it did).
+
+    That was not a cosmetic logging bug. A NameError raised INSIDE an `except`
+    block propagates out of the whole `try`, so the first 429 killed the task
+    instead of backing off: the retry this function exists for had never run,
+    not once.
+
+    Found 2026-09-15 by the Airflow DAG health check. rxclass had failed three
+    consecutive weekly runs (09-01, 09-08, 09-15), last success 08-25, each
+    time after ~5000 API calls — i.e. each time on the first rate limit. The
+    traceback read as a Python scope error, so the actual cause (HTTP 429 from
+    RxNav) sat one layer underneath it and nobody saw it.
+
+    THE HANDLER ORDER WAS WRONG TOO, and silently. `except Exception` sat ABOVE
+    `except URLError`, `except (KeyError, TypeError)` and a SECOND
+    `except Exception`; Python takes the first compatible clause, so all three
+    lower branches were unreachable — and Python does not warn about an
+    unreachable except. Specific before general now, and the duplicate is gone.
     """
     for attempt in range(max_retries):
         try:
             response = fetch_json(url)
-            return { "url": url, "response": response }
+            return {"url": url, "response": response}
 
         except HTTPError as e:
             if e.code == 429:
-                # Exponential backoff for rate-limit or "Too Many Requests" from body
+                # Exponential backoff for a rate limit, or for "Too Many
+                # Requests" returned inside a 200 body (see fetch_json).
                 delay = initial_delay * (2 ** attempt)
                 logging.warning(
-                    f"Rate limit (429) for rxcui={rxcui} at {url}. "
+                    f"Rate limit (429) at {url}. "
                     f"Retrying in {delay} seconds... (Attempt {attempt+1}/{max_retries})"
                 )
                 time.sleep(delay)
@@ -308,37 +332,32 @@ def concurrent_api_calls(url, max_retries=3, initial_delay=1):
                 )
                 return None
 
-        except Exception as e:
-            # Skip for any non-HTTPError exceptions
-            logging.error(
-                f"Error processing {url}: {str(e)}. Will skip to the next concept."
-            )
-
-            return None
-
         except URLError as e:
-            # Retry for URLError as well
+            # Transport-level failure: usually transient, so retry.
             if attempt < max_retries - 1:
                 delay = initial_delay * (2 ** attempt)
                 logging.warning(
-                    f"URLError for rxcui={rxcui} at {url}: {e.reason}. "
+                    f"URLError at {url}: {e.reason}. "
                     f"Retrying in {delay} seconds... (Attempt {attempt+1}/{max_retries})"
                 )
                 time.sleep(delay)
             else:
                 logging.error(
-                    f"URLError for rxcui={rxcui} at {url}: {e.reason}. "
+                    f"URLError at {url}: {e.reason}. "
                     f"Max retries reached. Skipping to the next concept."
                 )
-                
                 return None
 
         except (KeyError, TypeError) as e:
-            logging.error(f"Data structure error for rxcui={rxcui}: {str(e)}. Skipping to the next concept.")
+            logging.error(
+                f"Data structure error for {url}: {e}. Skipping to the next concept."
+            )
             return None
 
         except Exception as e:
-            logging.error(f"Unexpected error for rxcui={rxcui}: {str(e)}. Skipping to the next concept.")
+            logging.error(
+                f"Unexpected error for {url}: {e}. Skipping to the next concept."
+            )
             return None
 
     # If we exhaust all retries, return None (concept failed)
@@ -346,18 +365,55 @@ def concurrent_api_calls(url, max_retries=3, initial_delay=1):
     return None
 
 def get_concurrent_api_results(url_list: list):
-    # 2. Process concepts concurrently
+    """
+    Fetch every URL concurrently, and REFUSE to return a partial set quietly.
+
+    `concurrent_api_calls` returns None for a concept it could not fetch. This
+    function used to `results.append(result)` unconditionally, so those Nones
+    were returned AS DATA and counted in the total it printed — a run that
+    fetched half of what it asked for still logged a full-looking count.
+
+    That never mattered while the 429 path raised NameError and killed the task
+    on the first rate limit: nothing reached here. Repairing the retry is
+    exactly what makes it matter, because a rate-limited run now completes.
+    Without this, fixing the handler would have traded a loud weekly failure
+    for a silent partial load of the drug classification tables — strictly
+    worse, since nothing downstream can tell a missing class from a drug that
+    genuinely has none.
+
+    So: Nones are dropped rather than returned, the count of skips is always
+    logged, and any skip raises. The retry above already absorbs transience
+    with three backed-off attempts; a concept still unfetched after that means
+    the source is refusing us, and a weekly classification load that cannot be
+    complete should say so rather than publish a hole.
+    """
     results = []
+    skipped = 0
     with ThreadPoolExecutor(max_workers=10) as executor:
         process_func = partial(concurrent_api_calls)
         mapped_results = executor.map(process_func, url_list)
 
         for i, result in enumerate(mapped_results, start=1):
-            results.append(result)
+            if result is None:
+                skipped += 1
+            else:
+                results.append(result)
             if i % 500 == 0:  # Log every 500 concepts
                 logging.info(f"Made {i} API calls so far...")
 
-    print(f'Concurrent API call results count: {len(results)}')
+    requested = len(url_list)
+    logging.info(
+        f"Concurrent API calls: {len(results)} fetched of {requested} requested, "
+        f"{skipped} skipped."
+    )
+
+    if skipped:
+        raise RuntimeError(
+            f"{skipped} of {requested} concepts could not be fetched after retries "
+            f"(most often a sustained HTTP 429 from the source). Failing rather "
+            f"than loading a partial set — a missing class is indistinguishable "
+            f"downstream from a drug that has none."
+        )
 
     return results
 
