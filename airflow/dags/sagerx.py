@@ -48,6 +48,52 @@ def write_json_file(json_path:str, data):
     with open(json_path, 'w') as f:
         json.dump(data, f)
 
+# ── Streaming variants, for a payload too big to hold twice ──────────────────
+#
+# read_json_file/write_json_file above build the WHOLE structure in memory. That
+# is fine for most DAGs here and is deliberately left alone — mccpd, umls and
+# fda_enforcement all use them and their formats must not change under them.
+#
+# It is not fine for rxclass. Measured 2026-09-15: its intermediate file is
+# 883 MB of JSON, and `json.load` needs roughly five to ten times a file's size
+# in object overhead, so reading it back wants 4.5-9 GB on a box with 7.9 GB.
+# The `load` task was OOM-killed (Negsignal.SIGKILL) sixty seconds in, having
+# done nothing but open the file — and the kernel log shows the same kill taking
+# the `extract` task at 6.0 GB on 2026-09-08.
+#
+# JSON Lines fixes it without a parser dependency: one object per line means the
+# writer never holds more than one record and the reader never holds more than
+# one line. The format is INTERNAL to a DAG — whoever writes it reads it — so
+# nothing outside needs to agree.
+#
+# MEASURED, on 361 MB of rxclass-shaped records, same row count from both:
+#
+#   json.load on the array   1855 MB peak RSS   (5.1x the file)
+#   iter_json_lines          12 MB peak RSS     (155x less)
+#
+# ⚠ The 12 MB only holds while the caller does not materialise the generator.
+# `list(iter_json_lines(...))` puts every byte back and is worse than what this
+# replaced, because it pays for the objects AND the line parsing.
+#
+# ⚠ A record containing a literal newline would corrupt the file. `json.dumps`
+# escapes newlines inside strings by default (ensure_ascii aside, it never emits
+# a raw \n within a JSON string), so this holds for any JSON-serialisable value.
+def write_json_lines(json_path:str, records):
+    """Write an iterable of JSON-serialisable records, one per line."""
+    with open(json_path, 'w') as f:
+        for record in records:
+            f.write(json.dumps(record))
+            f.write('\n')
+
+def iter_json_lines(json_path:str):
+    """Yield one record per line. A GENERATOR — the caller must not list() it,
+    or the memory this exists to save comes straight back."""
+    with open(json_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                yield json.loads(line)
+
 # Web functions
 
 # Several federal data hosts sit behind a bot-management WAF (FDA/accessdata is on
