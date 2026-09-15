@@ -1,6 +1,6 @@
 from airflow.decorators import task
 import pandas as pd
-from sagerx import get_rxcuis, load_df_to_pg, get_concurrent_api_results, write_json_file, read_json_file, create_path
+from sagerx import get_rxcuis, load_df_to_pg, get_concurrent_api_results, write_json_lines, iter_json_lines, create_path
 from common_dag_tasks import get_data_folder
 import logging
 
@@ -32,10 +32,14 @@ def extract(dag_id:str) -> str:
     results = get_concurrent_api_results(url_list)
 
     data_folder = get_data_folder(dag_id)
-    file_path = create_path(data_folder) / 'data.json'
+    # JSON LINES, not one array. The array form was 883 MB and `load` was
+    # OOM-killed reading it back — see the note on write_json_lines. The format
+    # is internal to this DAG: extract writes it, load reads it, nothing else
+    # looks at the file.
+    file_path = create_path(data_folder) / 'data.jsonl'
     file_path_str = file_path.resolve().as_posix()
 
-    write_json_file(file_path_str, results)
+    write_json_lines(file_path_str, results)
 
     print(f"Extraction Completed! Data saved to file: {file_path_str}")
 
@@ -44,7 +48,10 @@ def extract(dag_id:str) -> str:
 
 @task
 def load(file_path_str:str):
-    results = read_json_file(file_path_str)
+    # A GENERATOR, deliberately: the file is ~900 MB and json.load on it wanted
+    # several times that in object overhead, which is what the kernel killed
+    # this task for. Do not wrap this in list().
+    results = iter_json_lines(file_path_str)
 
     classes = []
     for result in results:
