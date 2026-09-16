@@ -48,8 +48,33 @@ fda_synonyms as (
             )) as synonym,
             product_rxcui,
             'FDA' as source
-    from sagerx_dev.stg_fda_ndc__ndcs f
-    left join sagerx_dev.int_rxnorm_ndcs_to_products r
+    {#
+      ⚠ ref(), not a hardcoded schema.
+
+      These were `sagerx_dev.stg_fda_ndc__ndcs` and
+      `sagerx_dev.int_rxnorm_ndcs_to_products`, written that way when the mart
+      was added in 2024. They failed in two different ways, and only one of
+      them was loud:
+
+        stg_fda_ndc__ndcs           builds into `sagerx`, and no longer exists
+                                    in `sagerx_dev` at all, so the model died
+                                    with "relation does not exist" and took
+                                    build_marts down with it every week since
+                                    2026-08-13.
+
+        int_rxnorm_ndcs_to_products exists in BOTH schemas. The hardcoded join
+                                    resolved happily against a STALE leftover
+                                    in `sagerx_dev` and produced plausible
+                                    output, which is the worse failure: nothing
+                                    errors and the numbers are quietly wrong.
+
+      Line 22 of this same file already reads the second one as
+      `{{ ref('int_rxnorm_ndcs_to_products') }}` — one model, referenced two
+      ways, in one file. ref() also tells dbt about the dependency, so it can
+      order the build instead of hoping the table happens to be there.
+    #}
+    from {{ ref('stg_fda_ndc__ndcs') }} f
+    left join {{ ref('int_rxnorm_ndcs_to_products') }} r
         on r.ndc = f.ndc11
     where r.product_rxcui is not null
 
