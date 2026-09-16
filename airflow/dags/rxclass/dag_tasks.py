@@ -46,33 +46,67 @@ def extract(dag_id:str) -> str:
     return file_path_str
 
 
+COLUMNS = [
+    "rxcui", "name", "tty", "rela",
+    "class_id", "class_name", "class_type", "rela_source",
+]
+
 @task
 def load(file_path_str:str):
-    # A GENERATOR, deliberately: the file is ~900 MB and json.load on it wanted
-    # several times that in object overhead, which is what the kernel killed
-    # this task for. Do not wrap this in list().
-    results = iter_json_lines(file_path_str)
+    """
+    Stream the extract and de-duplicate WHILE parsing.
 
-    classes = []
-    for result in results:
+    ⚠ Measured on the real 2026-09-15 extract, inside the airflow container:
+
+        holding every row, then drop_duplicates()   3,697,857 rows   4,077 MB peak
+        de-duplicating into a set as we go            130,121 rows     104 MB peak
+
+    Same 130,121 rows out. 96.5% of the parsed rows are duplicates, so the list
+    was ~28x larger than the result it produced.
+
+    Switching the read to `iter_json_lines` removed the ~900 MB document parse
+    that got this task OOM-killed (anon-rss 6.0 GB on 2026-09-08, 3.3 GB and
+    6.1 GB on 2026-09-15). It did not remove this: the box has 7.8 GB, no swap,
+    and roughly 2 GB already in use by postgres, dbt and the airflow services,
+    so a 4 GB peak still lands inside the range the kernel killed us in. It
+    would survive a quiet box and die during a concurrent dbt run, which is the
+    worst kind of fixed.
+
+    A tuple is hashable, so the set de-duplicates exactly as `drop_duplicates()`
+    did, without ever materialising the duplicates.
+    """
+    seen = set()
+    scanned = 0
+    for result in iter_json_lines(file_path_str):
         # skip a result if it is None
         if result is None:
-            continue        
+            continue
+        scanned += 1
         response = result['response']
         if 'rxclassDrugInfoList' in response:
             for drug_info in response["rxclassDrugInfoList"]["rxclassDrugInfo"]:
-                classes.append(
-                    dict(
-                        rxcui = drug_info["minConcept"].get("rxcui"),
-                        name = drug_info["minConcept"].get("name",""),
-                        tty = drug_info["minConcept"].get("tty",""),
-                        rela = drug_info.get("rela",""),
-                        class_id = drug_info["rxclassMinConceptItem"].get("classId",""),
-                        class_name = drug_info["rxclassMinConceptItem"].get("className",""),
-                        class_type = drug_info["rxclassMinConceptItem"].get("classType",""),
-                        rela_source = drug_info.get("relaSource","")            
-                    )
-                )
-    df = pd.DataFrame(classes).drop_duplicates()
-    print(f'Dataframe created of {len(df)} length.')
+                seen.add((
+                    drug_info["minConcept"].get("rxcui"),
+                    drug_info["minConcept"].get("name",""),
+                    drug_info["minConcept"].get("tty",""),
+                    drug_info.get("rela",""),
+                    drug_info["rxclassMinConceptItem"].get("classId",""),
+                    drug_info["rxclassMinConceptItem"].get("className",""),
+                    drug_info["rxclassMinConceptItem"].get("classType",""),
+                    drug_info.get("relaSource",""),
+                ))
+
+    df = pd.DataFrame(list(seen), columns=COLUMNS)
+    print(f'Dataframe created of {len(df)} length, from {scanned} API results.')
+
+    # ⚠ An empty frame would REPLACE the table with nothing. A run that parsed
+    # no rows is a failure, not an instruction to empty the lake. The previous
+    # shape could not hit this because it crashed instead; this one returns
+    # cleanly from a bad extract, so it has to be said out loud.
+    if df.empty:
+        raise ValueError(
+            f"rxclass parsed {scanned} API results and produced 0 rows; "
+            "refusing to replace sagerx_lake.rxclass with an empty table"
+        )
+
     load_df_to_pg(df,"sagerx_lake","rxclass","replace",index=False)
