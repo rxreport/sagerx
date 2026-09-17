@@ -1,6 +1,6 @@
 from airflow.decorators import task
 import pandas as pd
-from sagerx import get_rxcuis, load_df_to_pg, get_concurrent_api_results, write_json_lines, iter_json_lines, create_path
+from sagerx import get_rxcuis, load_df_to_pg, stream_concurrent_api_results_to_jsonl, iter_json_lines, create_path
 from common_dag_tasks import get_data_folder
 import logging
 
@@ -29,19 +29,29 @@ def extract(dag_id:str) -> str:
     # 1.5. Create list of urls
     url_list = create_url_list(rxcui_list)
 
-    results = get_concurrent_api_results(url_list)
-
     data_folder = get_data_folder(dag_id)
     # JSON LINES, not one array. The array form was 883 MB and `load` was
-    # OOM-killed reading it back — see the note on write_json_lines. The format
-    # is internal to this DAG: extract writes it, load reads it, nothing else
-    # looks at the file.
+    # OOM-killed reading it back. The format is internal to this DAG: extract
+    # writes it, load reads it, nothing else looks at the file.
     file_path = create_path(data_folder) / 'data.jsonl'
     file_path_str = file_path.resolve().as_posix()
 
-    write_json_lines(file_path_str, results)
+    # ⚠ STREAMED to disk as each response arrives, never held as a list.
+    #
+    # This was `results = get_concurrent_api_results(url_list)` followed by a
+    # write, which kept every one of ~125k responses in memory at once. On the
+    # 7.8 GB, no-swap warehouse box that peaked at 5,235 MB against 5,886 MB
+    # available on a run that SUCCEEDED -- and the same task had been OOM-killed
+    # at anon-rss 3.3 GB two days earlier, when the box was busier. It survived
+    # only because nothing else was running, so a green run was never evidence
+    # it was safe.
+    #
+    # The writer is atomic: a skipped concept still fails the task (partial
+    # classification data is worse than none), and on any failure the half
+    # written file is removed and the last good data.jsonl is left untouched.
+    written = stream_concurrent_api_results_to_jsonl(url_list, file_path_str)
 
-    print(f"Extraction Completed! Data saved to file: {file_path_str}")
+    print(f"Extraction Completed! {written} results saved to file: {file_path_str}")
 
     return file_path_str
 
