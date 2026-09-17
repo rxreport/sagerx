@@ -1,3 +1,4 @@
+import os
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -410,46 +411,70 @@ def concurrent_api_calls(url, max_retries=3, initial_delay=1):
     logging.error(f"Max retries reached for {url}. Skipping to the next concept.")
     return None
 
-def get_concurrent_api_results(url_list: list):
+# At most this many fetched results can be held in memory at once while
+# streaming. Sized to the existing 500-call progress log; with max_workers=10
+# it keeps 50 URLs per worker queued, so concurrency is not throttled.
+_FETCH_CHUNK = 500
+
+
+def _iter_concurrent_api_results(url_list: list):
     """
-    Fetch every URL concurrently, and REFUSE to return a partial set quietly.
+    Fetch every URL concurrently and YIELD each result as it arrives.
 
-    `concurrent_api_calls` returns None for a concept it could not fetch. This
-    function used to `results.append(result)` unconditionally, so those Nones
-    were returned AS DATA and counted in the total it printed — a run that
-    fetched half of what it asked for still logged a full-looking count.
+    The single home of the fetch-and-refuse-a-partial-set rule, shared by the
+    list-returning and the streaming callers below so the two cannot drift.
+    A second hand-written copy of "count the skips and raise" is exactly the
+    shape that ends with one caller quietly loading half a dataset.
 
-    That never mattered while the 429 path raised NameError and killed the task
-    on the first rate limit: nothing reached here. Repairing the retry is
-    exactly what makes it matter, because a rate-limited run now completes.
-    Without this, fixing the handler would have traded a loud weekly failure
-    for a silent partial load of the drug classification tables — strictly
-    worse, since nothing downstream can tell a missing class from a drug that
-    genuinely has none.
+    `concurrent_api_calls` returns None for a concept it could not fetch. Those
+    are dropped rather than yielded, the skip count is always logged, and any
+    skip raises -- AFTER every good result has been yielded, so a consumer that
+    wrote them must treat the raise as "discard what you wrote".
 
-    So: Nones are dropped rather than returned, the count of skips is always
-    logged, and any skip raises. The retry above already absorbs transience
-    with three backed-off attempts; a concept still unfetched after that means
-    the source is refusing us, and a weekly classification load that cannot be
-    complete should say so rather than publish a hole.
+    Why a skip raises at all: the retry in `concurrent_api_calls` already
+    absorbs transience with three backed-off attempts, so a concept still
+    unfetched after that means the source is refusing us. Loading anyway would
+    publish a hole that nothing downstream can tell from a drug that genuinely
+    has no class. This used to be `results.append(result)` unconditionally,
+    which returned the Nones AS DATA and printed a full-looking count; it never
+    mattered while the 429 path raised NameError on the first rate limit, and
+    repairing that retry is exactly what made it matter.
     """
-    results = []
     skipped = 0
+    fetched = 0
+    done = 0
+    requested = len(url_list)
     with ThreadPoolExecutor(max_workers=10) as executor:
         process_func = partial(concurrent_api_calls)
-        mapped_results = executor.map(process_func, url_list)
+        # ⚠ SUBMITTED IN CHUNKS, not in one executor.map over the whole list.
+        #
+        # executor.map submits EVERY future up front and has no back-pressure:
+        # a completed future holds its result until the consumer reaches it.
+        # So streaming each yielded result to disk did NOT bound memory on its
+        # own -- measured with a stub that answers instantly, streaming 40,000
+        # results peaked at 1,128 MB, identical to building the list, because
+        # all 40,000 results sat in their futures before the first was written.
+        #
+        # Production is paced by the network and would usually hide that, but
+        # memory safety that depends on the source being SLOW is not safety:
+        # a warm cache or a faster link puts rxclass straight back over the
+        # 7.8 GB, no-swap warehouse's ceiling. Chunking bounds what can ever be
+        # in flight to CHUNK results, whatever the producer's speed, and keeps
+        # input order both within and across chunks.
+        for start in range(0, requested, _FETCH_CHUNK):
+            chunk = url_list[start:start + _FETCH_CHUNK]
+            for result in executor.map(process_func, chunk):
+                done += 1
+                if result is None:
+                    skipped += 1
+                else:
+                    fetched += 1
+                    yield result
+                if done % 500 == 0:  # Log every 500 concepts
+                    logging.info(f"Made {done} API calls so far...")
 
-        for i, result in enumerate(mapped_results, start=1):
-            if result is None:
-                skipped += 1
-            else:
-                results.append(result)
-            if i % 500 == 0:  # Log every 500 concepts
-                logging.info(f"Made {i} API calls so far...")
-
-    requested = len(url_list)
     logging.info(
-        f"Concurrent API calls: {len(results)} fetched of {requested} requested, "
+        f"Concurrent API calls: {fetched} fetched of {requested} requested, "
         f"{skipped} skipped."
     )
 
@@ -457,11 +482,63 @@ def get_concurrent_api_results(url_list: list):
         raise RuntimeError(
             f"{skipped} of {requested} concepts could not be fetched after retries "
             f"(most often a sustained HTTP 429 from the source). Failing rather "
-            f"than loading a partial set — a missing class is indistinguishable "
+            f"than loading a partial set -- a missing class is indistinguishable "
             f"downstream from a drug that has none."
         )
 
-    return results
+
+def get_concurrent_api_results(url_list: list):
+    """
+    Every result as a LIST. Used by umls and rxnorm_historical, whose volumes
+    fit in memory.
+
+    ⚠ Do not use this for rxclass. It holds every response at once, and for
+    rxclass that is ~125k responses: the extract task peaked at 5,235 MB
+    against 5,886 MB available on the 7.8 GB, no-swap warehouse box, having
+    already been OOM-killed there at anon-rss 3.3 GB when the box was busier.
+    Use `stream_concurrent_api_results_to_jsonl` instead.
+    """
+    return list(_iter_concurrent_api_results(url_list))
+
+
+def stream_concurrent_api_results_to_jsonl(url_list: list, jsonl_path: str) -> int:
+    """
+    Fetch concurrently and write each result to `jsonl_path` as it arrives.
+
+    Memory stays flat: a result is serialised and dropped the moment it is
+    yielded, instead of joining a list of every response. The line format is
+    identical to `write_json_lines`, so `iter_json_lines` reads it unchanged.
+
+    ⚠ ATOMIC, because a partial file here is worse than no file. Writes go to
+    `<path>.partial` and are renamed over `jsonl_path` only after the fetch has
+    finished WITHOUT a skip. If anything raises -- a skipped concept, a network
+    failure, the task being killed -- the partial is removed and the previous
+    good `jsonl_path` is left exactly as it was. Nothing downstream can ever
+    read a half-written extract, and a failed run cannot destroy the last good
+    one.
+
+    Returns the number of results written.
+    """
+    partial_path = f"{jsonl_path}.partial"
+    written = 0
+    try:
+        with open(partial_path, 'w') as f:
+            for result in _iter_concurrent_api_results(url_list):
+                f.write(json.dumps(result))
+                f.write('\n')
+                written += 1
+        # Only reached when the generator finished without raising.
+        os.replace(partial_path, jsonl_path)
+    except BaseException:
+        # BaseException, not Exception: Airflow cancels a task with a signal
+        # that surfaces as a non-Exception, and a half-written .partial must
+        # not survive that either.
+        try:
+            os.remove(partial_path)
+        except OSError:
+            pass
+        raise
+    return written
 
 def get_rxcuis(ttys:list, active_only:bool = False) -> list:
     settings = ''
