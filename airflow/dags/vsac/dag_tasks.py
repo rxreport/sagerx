@@ -1,4 +1,5 @@
 import requests
+import time
 import pandas as pd
 import base64
 import concurrent.futures
@@ -18,6 +19,47 @@ api_key = Variable.get("umls_api")
 # before it). See `http_session` in sagerx.py for why no method list is passed.
 _session = http_session()
 
+# ⚠ A 200 with an EMPTY BODY is an answer, so `http_session` never retries it.
+# Its `Retry` covers connection errors and 429/5xx. VSAC instead answers 200 with
+# nothing in it, `ET.fromstring("")` raises `ParseError: no element found`, and
+# with `default_task_retries = 0` that one blank response kills the whole daily
+# run: on 2026-09-25 this DAG died 7s in and AIRFLOW_DAG_HEALTH stayed red until
+# a human cleared the run. Retrying the GET is the fix — the next one answers.
+EMPTY_XML_RETRIES = 3
+EMPTY_XML_PAUSE_SECONDS = 5
+
+
+def _get_xml(url, headers, what):
+    """GET `url` and parse the body as XML, retrying a blank or unparseable one.
+
+    ⚠ RAISES rather than returning None when every attempt comes back blank. The
+    DAG ends in `load_df_to_pg(..., "replace")`, so a tag that quietly
+    contributes no value sets does not fail the run — it REPLACES the table with
+    a partial set, which is silent data loss wearing the shape of a successful
+    import. A blank that never resolves has to be loud.
+    """
+    last = None
+    for attempt in range(1, EMPTY_XML_RETRIES + 1):
+        response = _session.get(url, headers=headers, timeout=DEFAULT_HTTP_TIMEOUT)
+        response.raise_for_status()
+        text = (response.text or "").strip()
+        if text:
+            try:
+                return ET.fromstring(text)
+            except ET.ParseError as e:
+                last = f"unparseable XML: {e}"
+        else:
+            last = "empty body"
+        print(
+            f"{what}: {last} on attempt {attempt}/{EMPTY_XML_RETRIES}"
+            f" (HTTP {response.status_code}, {len(response.text or '')} bytes)"
+        )
+        if attempt < EMPTY_XML_RETRIES:
+            time.sleep(EMPTY_XML_PAUSE_SECONDS)
+    raise RuntimeError(
+        f"{what}: VSAC returned no usable XML after {EMPTY_XML_RETRIES} attempts ({last})"
+    )
+
 # function to retrieve tag values for a given tag name
 def get_tag_values(tag_name):
     credentials = f"apikey:{api_key}".encode('utf-8')
@@ -27,15 +69,18 @@ def get_tag_values(tag_name):
         "Accept": "application/xml"
     }
     try:
-        response = _session.get(f"https://vsac.nlm.nih.gov/vsac/tagName/{tag_name}/tagValues", headers=headers, timeout=DEFAULT_HTTP_TIMEOUT)
-        response.raise_for_status()  # This will raise an exception for HTTP errors
-        return response.text
+        return _get_xml(
+            f"https://vsac.nlm.nih.gov/vsac/tagName/{tag_name}/tagValues",
+            headers,
+            f"tag values for {tag_name!r}",
+        )
     except requests.exceptions.RequestException as e:
         print(f"Error fetching data for tag {tag_name}: {e}")
         return None
-    
-def parse_xml_for_tag_values(xml_content):
-    root = ET.fromstring(xml_content)
+
+# `root` is already-parsed XML — `get_tag_values` hands back an Element, not text,
+# so the blank-body retry sits in ONE place rather than at every parse site.
+def parse_xml_for_tag_values(root):
     values = [tag_value.text for tag_value in root.findall('.//value')]
     return values
 
@@ -55,8 +100,11 @@ def get_described_value_set_ids(tag_name, tag_value):
         "Authorization": f"Basic {base64_encoded_credentials}",
         "Accept": "application/xml"
     }
-    response = _session.get(f"https://vsac.nlm.nih.gov/vsac/svs/RetrieveMultipleValueSets?tagName={tag_name}&tagValue={tag_value}", headers=headers, timeout=DEFAULT_HTTP_TIMEOUT)
-    root = ET.fromstring(response.text)
+    root = _get_xml(
+        f"https://vsac.nlm.nih.gov/vsac/svs/RetrieveMultipleValueSets?tagName={tag_name}&tagValue={tag_value}",
+        headers,
+        f"value sets for {tag_name!r}={tag_value!r}",
+    )
     value_set_ids = [value_set.get('ID') for value_set in root.findall('.//ns0:DescribedValueSet', namespaces={'ns0': 'urn:ihe:iti:svs:2008'})]
     return value_set_ids
 
