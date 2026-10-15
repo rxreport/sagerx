@@ -329,11 +329,61 @@ def fetch_json(url):
     return data
 
 
-def concurrent_api_calls(url, max_retries=3, initial_delay=1):
+# UMLS (uts-ws.nlm.nih.gov) takes its API key in the QUERY STRING, so every URL
+# the umls DAG builds carries the key, and every log line below that names a URL
+# used to write it into the Airflow task log in clear (2026-10-15: 27 lines
+# across the three attempts of one failed run). Every URL a log line or an
+# exception message names goes through this first.
+_API_KEY_IN_URL = re.compile(r"(?i)(apiKey=)[^&#\s]*")
+
+
+def redact_url(text):
+    """`text` with every apiKey query value replaced by ***."""
+    return _API_KEY_IN_URL.sub(r"\1***", str(text))
+
+
+class RetiredConcept:
+    """What `concurrent_api_calls` returns for a 404 the caller's `is_retired`
+    accepted: the source says this concept does not exist in its current
+    release. Not a result (there is nothing to load for it) and not a failure
+    (no retry will ever bring it back). Counted and named, never yielded."""
+
+    __slots__ = ("url",)
+
+    def __init__(self, url):
+        self.url = url
+
+
+def _http_error_body(e):
+    """The body of an HTTPError, or b"" when there is none to read."""
+    try:
+        body = e.read()
+    except Exception:
+        return b""
+    return body if isinstance(body, bytes) else b""
+
+
+def concurrent_api_calls(url, max_retries=3, initial_delay=1, is_retired=None):
     """
-    Call the rxclass API for one URL, retrying on rate limits and transport
-    errors. Returns {"url", "response"} on success, or None for a concept that
-    could not be fetched.
+    Call the API for one URL, retrying on rate limits, server errors and
+    transport errors. Returns {"url", "response"} on success, a
+    `RetiredConcept` for a 404 that `is_retired(url, body)` accepts, or None
+    for a concept that could not be fetched.
+
+    `is_retired` is OPT-IN, per caller: without it (rxclass,
+    rxnorm_historical) a 404 is a failure exactly as before. Only the umls DAG
+    passes one, and it accepts only UTS's own not-found answer on the endpoints
+    where a missing concept means "no data" (see `umls/uts.py`). A 404 it does
+    not accept is a failure, and its body is logged (first 200 bytes) so the
+    next reader sees what the source actually said.
+
+    5xx IS RETRIED (2026-10-15). It used to be skipped on the FIRST answer, like
+    any other non-429 HTTP error, so one 502 from an upstream that was healthy a
+    second later failed the whole run: the umls run of 2026-10-15 died that way
+    twice (1 and 3 crosswalk 502s), and its third attempt, the one that got
+    past the crosswalk, still had 4 relations 502s among its 23 skips. A 5xx now
+    gets the same backed-off attempts as a transport error, and a source that is
+    still failing after them still fails the run.
 
     EVERY ERROR PATH HERE RAISED `NameError: name 'rxcui' is not defined`.
     Five log lines interpolated `rxcui`, which is neither a parameter nor
@@ -356,7 +406,11 @@ def concurrent_api_calls(url, max_retries=3, initial_delay=1):
     `except Exception`; Python takes the first compatible clause, so all three
     lower branches were unreachable — and Python does not warn about an
     unreachable except. Specific before general now, and the duplicate is gone.
+
+    ⚠ Every URL logged here goes through `redact_url`: the UMLS key rides in
+    the query string.
     """
+    shown = redact_url(url)
     for attempt in range(max_retries):
         try:
             response = fetch_json(url)
@@ -368,14 +422,45 @@ def concurrent_api_calls(url, max_retries=3, initial_delay=1):
                 # Requests" returned inside a 200 body (see fetch_json).
                 delay = initial_delay * (2 ** attempt)
                 logging.warning(
-                    f"Rate limit (429) at {url}. "
+                    f"Rate limit (429) at {shown}. "
                     f"Retrying in {delay} seconds... (Attempt {attempt+1}/{max_retries})"
                 )
                 time.sleep(delay)
+            elif 500 <= e.code <= 599:
+                # A server error is usually transient: retry, like a transport
+                # failure, and give up (fail the concept) only when it persists.
+                if attempt < max_retries - 1:
+                    delay = initial_delay * (2 ** attempt)
+                    logging.warning(
+                        f"HTTP {e.code} at {shown}. "
+                        f"Retrying in {delay} seconds... (Attempt {attempt+1}/{max_retries})"
+                    )
+                    time.sleep(delay)
+                else:
+                    logging.error(
+                        f"HTTP {e.code} at {shown}. "
+                        f"Max retries reached. Skipping to the next concept."
+                    )
+                    return None
+            elif e.code == 404 and is_retired is not None:
+                body = _http_error_body(e)
+                if is_retired(url, body):
+                    logging.info(
+                        f"Not in the source's current release (404 not-found): "
+                        f"{shown}. Retired: no data for this concept."
+                    )
+                    return RetiredConcept(url)
+                sample = redact_url(body[:200].decode("utf-8", "replace")).replace("\n", " ")
+                logging.error(
+                    f"HTTP error 404 for {shown}, and the answer is not a "
+                    f"recognised retirement (body: {sample!r}). Will skip to "
+                    f"the next concept."
+                )
+                return None
             else:
                 # Skip for other HTTP errors
                 logging.error(
-                    f"HTTP error {e.code} for {url}. Will skip to the next concept."
+                    f"HTTP error {e.code} for {shown}. Will skip to the next concept."
                 )
                 return None
 
@@ -384,31 +469,31 @@ def concurrent_api_calls(url, max_retries=3, initial_delay=1):
             if attempt < max_retries - 1:
                 delay = initial_delay * (2 ** attempt)
                 logging.warning(
-                    f"URLError at {url}: {e.reason}. "
+                    f"URLError at {shown}: {redact_url(e.reason)}. "
                     f"Retrying in {delay} seconds... (Attempt {attempt+1}/{max_retries})"
                 )
                 time.sleep(delay)
             else:
                 logging.error(
-                    f"URLError at {url}: {e.reason}. "
+                    f"URLError at {shown}: {redact_url(e.reason)}. "
                     f"Max retries reached. Skipping to the next concept."
                 )
                 return None
 
         except (KeyError, TypeError) as e:
             logging.error(
-                f"Data structure error for {url}: {e}. Skipping to the next concept."
+                f"Data structure error for {shown}: {redact_url(e)}. Skipping to the next concept."
             )
             return None
 
         except Exception as e:
             logging.error(
-                f"Unexpected error for {url}: {e}. Skipping to the next concept."
+                f"Unexpected error for {shown}: {redact_url(e)}. Skipping to the next concept."
             )
             return None
 
     # If we exhaust all retries, return None (concept failed)
-    logging.error(f"Max retries reached for {url}. Skipping to the next concept.")
+    logging.error(f"Max retries reached for {shown}. Skipping to the next concept.")
     return None
 
 # At most this many fetched results can be held in memory at once while
@@ -417,7 +502,8 @@ def concurrent_api_calls(url, max_retries=3, initial_delay=1):
 _FETCH_CHUNK = 500
 
 
-def _iter_concurrent_api_results(url_list: list):
+def _iter_concurrent_api_results(url_list: list, is_retired=None,
+                                 max_retired_fraction=None, retired_urls=None):
     """
     Fetch every URL concurrently and YIELD each result as it arrives.
 
@@ -439,13 +525,24 @@ def _iter_concurrent_api_results(url_list: list):
     which returned the Nones AS DATA and printed a full-looking count; it never
     mattered while the 429 path raised NameError on the first rate limit, and
     repairing that retry is exactly what made it matter.
+
+    RETIRED CONCEPTS (only when `is_retired` is given; umls is the one caller).
+    A `RetiredConcept` is neither yielded nor a skip: it is counted, appended to
+    `retired_urls` when the caller passed a list, and allowed -- up to
+    `max_retired_fraction` of the round. More than that raises: a source that
+    answers "not found" for that share of what we asked about is being asked
+    the wrong question (a wrong source, version or path 404s EVERY concept),
+    and that must never load as an empty-but-green round.
     """
+    if is_retired is not None and max_retired_fraction is None:
+        raise ValueError("is_retired needs a max_retired_fraction: the bound is the half of the rule no single answer can check")
     skipped = 0
     fetched = 0
+    retired = 0
     done = 0
     requested = len(url_list)
     with ThreadPoolExecutor(max_workers=10) as executor:
-        process_func = partial(concurrent_api_calls)
+        process_func = partial(concurrent_api_calls, is_retired=is_retired)
         # ⚠ SUBMITTED IN CHUNKS, not in one executor.map over the whole list.
         #
         # executor.map submits EVERY future up front and has no back-pressure:
@@ -467,30 +564,46 @@ def _iter_concurrent_api_results(url_list: list):
                 done += 1
                 if result is None:
                     skipped += 1
+                elif isinstance(result, RetiredConcept):
+                    retired += 1
+                    if retired_urls is not None:
+                        retired_urls.append(result.url)
                 else:
                     fetched += 1
                     yield result
                 if done % 500 == 0:  # Log every 500 concepts
                     logging.info(f"Made {done} API calls so far...")
 
+    retired_part = f"{retired} retired (not in the source's current release), " if is_retired is not None else ""
     logging.info(
         f"Concurrent API calls: {fetched} fetched of {requested} requested, "
-        f"{skipped} skipped."
+        f"{retired_part}{skipped} skipped."
     )
 
+    problems = []
     if skipped:
-        raise RuntimeError(
+        problems.append(
             f"{skipped} of {requested} concepts could not be fetched after retries "
-            f"(most often a sustained HTTP 429 from the source). Failing rather "
-            f"than loading a partial set -- a missing class is indistinguishable "
-            f"downstream from a drug that has none."
+            f"(most often a sustained HTTP 429 or 5xx from the source)"
+        )
+    if is_retired is not None and retired > max_retired_fraction * requested:
+        problems.append(
+            f"{retired} of {requested} concepts ({retired / requested:.1%}) answered "
+            f"404 not-found, more than the {max_retired_fraction:.0%} a release "
+            f"retires: that is a broken request (a wrong source, version or path "
+            f"404s every concept), not retirements"
+        )
+    if problems:
+        raise RuntimeError(
+            "; ".join(problems) + ". Failing rather than loading a partial set -- "
+            "a missing class is indistinguishable downstream from a drug that has none."
         )
 
 
 def get_concurrent_api_results(url_list: list):
     """
-    Every result as a LIST. Used by umls and rxnorm_historical, whose volumes
-    fit in memory.
+    Every result as a LIST. Used by rxnorm_historical, whose volume fits in
+    memory (umls uses the retired-aware variant below).
 
     ⚠ Do not use this for rxclass. It holds every response at once, and for
     rxclass that is ~125k responses: the extract task peaked at 5,235 MB
@@ -499,6 +612,26 @@ def get_concurrent_api_results(url_list: list):
     Use `stream_concurrent_api_results_to_jsonl` instead.
     """
     return list(_iter_concurrent_api_results(url_list))
+
+
+def get_concurrent_api_results_allowing_retired(url_list: list, is_retired, max_retired_fraction):
+    """
+    `get_concurrent_api_results`, except that a 404 `is_retired(url, body)`
+    accepts is a RETIRED concept rather than a failure, up to
+    `max_retired_fraction` of `url_list` (see `_iter_concurrent_api_results`).
+
+    Returns `(results, retired_urls)`. ⚠ The URLs are the requested ones, so
+    for UMLS they carry the API key: turn them into concept ids before they go
+    anywhere a person reads (`umls/uts.py#summarize_retired`).
+    """
+    retired_urls = []
+    results = list(_iter_concurrent_api_results(
+        url_list,
+        is_retired=is_retired,
+        max_retired_fraction=max_retired_fraction,
+        retired_urls=retired_urls,
+    ))
+    return results, retired_urls
 
 
 def stream_concurrent_api_results_to_jsonl(url_list: list, jsonl_path: str) -> int:
