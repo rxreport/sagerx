@@ -1,0 +1,22 @@
+{
+  "not_found": {
+    "provenance": "MEASURED 2026-10-15: GET https://uts-ws.nlm.nih.gov/rest/semantic-network/current/TUI/T999 (no API key needed on that endpoint) -> HTTP 404 application/json; byte-for-byte the same for an unknown release (/semantic-network/2099AA/TUI/T109). The relations/crosswalk 404 body itself needs the API key and was not captured: same service, same error envelope.",
+    "status": 404,
+    "body": "{\"name\":\"NotFoundError\",\"status\":404,\"message\":\"404 Resource Not Found\"}"
+  },
+  "unauthorized": {
+    "provenance": "MEASURED 2026-10-15: GET https://uts-ws.nlm.nih.gov/rest/content/current/source/SNOMEDCT_US/85180002/relations with apiKey=x -> HTTP 401 application/json. Used as a 404 body here only to prove that UTS's envelope with another status is not a retirement.",
+    "status": 401,
+    "body": "{\"name\":\"UnauthorizedError\",\"status\":401,\"message\":\"401 - Invalid API Key - Documentation: https://documentation.uts.nlm.nih.gov/rest/authentication.html\"}"
+  },
+  "relations_ok": {
+    "provenance": "CONSTRUCTED from the documented top-level shape (https://documentation.uts.nlm.nih.gov/rest/relations/: pageSize, pageNumber, pageCount, result[]); nothing in the fetch path reads inside it.",
+    "status": 200,
+    "body": "{\"pageSize\":100,\"pageNumber\":1,\"pageCount\":1,\"result\":[{\"classType\":\"AtomClusterRelation\",\"additionalRelationLabel\":\"mapped_to\",\"relatedId\":\"https://uts-ws.nlm.nih.gov/rest/content/current/source/ICD10/E11\",\"relatedIdName\":\"Type 2 diabetes mellitus\"}]}"
+  },
+  "gateway_404": {
+    "provenance": "CONSTRUCTED: the shape of a 404 from something in front of UTS (a load balancer, a CDN, a mistyped host): HTML, not UTS's JSON envelope.",
+    "status": 404,
+    "body": "<html><head><title>404 Not Found</title></head><body><center><h1>404 Not Found</h1></center><hr><center>nginx</center></body></html>"
+  }
+}

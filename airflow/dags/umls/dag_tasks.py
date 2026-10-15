@@ -1,7 +1,8 @@
 from airflow.decorators import task
 import pandas as pd
 import re
-from sagerx import camel_to_snake, get_rxcuis, load_df_to_pg, get_concurrent_api_results, write_json_file, read_json_file, create_path
+from sagerx import camel_to_snake, get_rxcuis, load_df_to_pg, get_concurrent_api_results_allowing_retired, write_json_file, read_json_file, create_path
+from umls.uts import MAX_RETIRED_FRACTION, is_retired_concept, summarize_retired
 from common_dag_tasks import get_data_folder
 import logging
 from airflow.models import Variable
@@ -41,6 +42,20 @@ def create_snomed_relations_url_list(snomed_code_list:list)-> list:
         
     return urls
 
+def _record_retired(retired: dict):
+    """Push the retired-concept summary to XCom (key `retired_concepts`) on the
+    running task instance, beside the file path `extract` returns. Readable in
+    the Airflow UI (task instance > XCom) and in the metadata DB:
+
+        select value from xcom
+        where dag_id = 'umls' and task_id = 'extract' and key = 'retired_concepts'
+        order by timestamp desc limit 1;
+    """
+    from airflow.operators.python import get_current_context
+
+    get_current_context()["ti"].xcom_push(key="retired_concepts", value=retired)
+
+
 @task
 def extract(dag_id:str) -> str:
     # connect to Postgres and query the table for records with class_type 'DISEASE'
@@ -63,7 +78,9 @@ def extract(dag_id:str) -> str:
     # create list of urls for crosswalk
     url_list = create_url_list(mesh_code_list)
     print(f'Crosswalk URL list length: {len(url_list)}')
-    crosswalk_results = get_concurrent_api_results(url_list)
+    crosswalk_results, crosswalk_retired = get_concurrent_api_results_allowing_retired(
+        url_list, is_retired_concept, MAX_RETIRED_FRACTION
+    )
 
     # Extract SNOMEDCT_US codes from first round results
     logging.info("Extracting SNOMEDCT_US codes from crosswalk results...")
@@ -83,13 +100,40 @@ def extract(dag_id:str) -> str:
     
     # Second round: Get relations for SNOMEDCT_US codes
     relations_results = []
+    relations_retired = []
+    relations_requested = 0
     if snomed_codes:
         logging.info("Starting second round of data retrieval for SNOMEDCT_US relations...")
         relations_url_list = create_snomed_relations_url_list(list(snomed_codes))
-        print(f'Relations URL list length: {len(relations_url_list)}')
-        relations_results = get_concurrent_api_results(relations_url_list)
+        relations_requested = len(relations_url_list)
+        print(f'Relations URL list length: {relations_requested}')
+        relations_results, relations_retired = get_concurrent_api_results_allowing_retired(
+            relations_url_list, is_retired_concept, MAX_RETIRED_FRACTION
+        )
         logging.info(f"Retrieved {len(relations_results)} relation results")
-    
+
+    # RETIRED concepts: UTS answered its own 404 not-found for them, i.e. they
+    # are not in NLM's current release (see umls/uts.py). They contribute no
+    # rows, which is the truth about them, and they are recorded here so a
+    # person or a check can see how many and which: in this log, and in XCom
+    # `retired_concepts` on this task. Ids only -- the URLs carry the API key.
+    retired = {
+        "crosswalk": summarize_retired(crosswalk_retired, len(url_list)),
+        "relations": summarize_retired(relations_retired, relations_requested),
+    }
+    for round_name, summary in retired.items():
+        if summary["retired"]:
+            logging.warning(
+                f"UMLS {round_name}: {summary['retired']} of {summary['requested']} "
+                f"concepts are not in the current UTS release (404 not-found), so "
+                f"nothing was loaded for them (allowed up to "
+                f"{summary['max_retired_fraction']:.0%} of a round). "
+                f"e.g. {', '.join(summary['examples'])}"
+            )
+        else:
+            logging.info(f"UMLS {round_name}: 0 of {summary['requested']} concepts retired.")
+    _record_retired(retired)
+
     # Combine both results into a single structure
     all_results = {
         "crosswalk": crosswalk_results,
