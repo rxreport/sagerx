@@ -1,3 +1,4 @@
+import json
 import requests
 import time
 import pandas as pd
@@ -58,6 +59,50 @@ def _get_xml(url, headers, what):
             time.sleep(EMPTY_XML_PAUSE_SECONDS)
     raise RuntimeError(
         f"{what}: VSAC returned no usable XML after {EMPTY_XML_RETRIES} attempts ({last})"
+    )
+
+# ⚠ The same failure on the JSON path (2026-10-18). `retrieve_value_set` called
+# `response.json()` on whatever came back, and `http_session` is built with
+# `raise_on_status=False`, so after its own five 429/5xx retries it hands back the
+# LAST ERROR RESPONSE rather than raising. One value set out of thousands got a
+# throttled or failing answer for about two and a half minutes; its error page was
+# parsed as JSON (`JSONDecodeError` at char 0) and the whole run died eight minutes
+# in with nothing loaded, after daily successes. The rule is `_get_xml`'s: retry a
+# throttled, failing, blank or unparseable answer, and RAISE if it never resolves,
+# because the run ends in a "replace" load and a value set quietly dropped would
+# replace the table with a partial set. Any other 4xx (a value set that does not
+# exist) is not retried: asking again cannot change it, so it raises at once.
+JSON_RETRIES = 4
+JSON_PAUSE_SECONDS = (15, 60, 180)  # after attempts 1, 2, 3: outlasts a few minutes of throttling
+RETRYABLE_STATUS = (429, 500, 502, 503, 504)
+
+
+def _get_json(url, headers, what):
+    """GET `url` and parse the body as JSON, retrying a throttled, failing, blank or
+    unparseable answer. RAISES when every attempt fails (see above)."""
+    last = None
+    for attempt in range(1, JSON_RETRIES + 1):
+        response = _session.get(url, headers=headers, timeout=DEFAULT_HTTP_TIMEOUT)
+        if response.status_code in RETRYABLE_STATUS:
+            last = f"HTTP {response.status_code}"
+        else:
+            response.raise_for_status()
+            text = (response.text or "").strip()
+            if text:
+                try:
+                    return json.loads(text)
+                except ValueError as e:
+                    last = f"unparseable JSON: {e}"
+            else:
+                last = "empty body"
+        print(
+            f"{what}: {last} on attempt {attempt}/{JSON_RETRIES}"
+            f" (HTTP {response.status_code}, {len(response.text or '')} bytes)"
+        )
+        if attempt < JSON_RETRIES:
+            time.sleep(JSON_PAUSE_SECONDS[min(attempt, len(JSON_PAUSE_SECONDS)) - 1])
+    raise RuntimeError(
+        f"{what}: VSAC returned no usable JSON after {JSON_RETRIES} attempts ({last})"
     )
 
 # function to retrieve tag values for a given tag name
@@ -138,8 +183,7 @@ def retrieve_value_set(oid):
         "Authorization": f"Basic {base64_encoded_credentials}",
         "Accept": "application/fhir+json"
     }
-    response = _session.get(f"https://cts.nlm.nih.gov/fhir/ValueSet/{oid}", headers=headers, timeout=DEFAULT_HTTP_TIMEOUT)
-    return response.json()
+    return _get_json(f"https://cts.nlm.nih.gov/fhir/ValueSet/{oid}", headers, f"value set {oid}")
 
 # convert the JSON response to a dataframe
 def json_to_dataframe(response_json, current_oid=None, parent_oid=None):
