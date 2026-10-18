@@ -1,0 +1,6 @@
+# Airflow imports every .py under dags/ that mentions "airflow" and "dag" when it builds a DagBag.
+# Test scripts are not DAGs: on 2026-10-18 vsac/test_json_retry.py ended in sys.exit(), and every
+# CLI command that loads the whole DagBag (`airflow dags list`, `list-import-errors`, `tasks list`)
+# stopped at that file and exited 0, listing two DAGs of 32. Each script also keeps its body under
+# `if __name__ == "__main__":`; this file is the second fence. Regexp syntax (dag_ignore_file_syntax).
+(^|/)test_[^/]*\.py$
