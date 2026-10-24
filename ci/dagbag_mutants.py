@@ -65,9 +65,12 @@ def mutants(expected: list) -> list:
         ("a dag.py that defines no DAG",
          lambda t: (t / third / "dag.py").write_text('"""airflow dag placeholder, defines nothing"""\n'),
          None, 1, f"no DAG: {third}/dag.py produced no DAG"),
+        # Airflow records a duplicate against whichever copy it parses SECOND, and the
+        # directory walk's order differs between machines (the copy locally, the original
+        # on the GitHub runner), so the kill is the exception's name, not a directory.
         ("a duplicate dag_id",
          lambda t: shutil.copytree(str(t / first), str(t / "zz_ci_duplicate")),
-         None, 1, "import error: zz_ci_duplicate:"),
+         None, 1, "AirflowDagDuplicatedIdException"),
         (".airflowignore removed",
          lambda t: (t / ".airflowignore").unlink(),
          None, 1, "not ignored: "),
