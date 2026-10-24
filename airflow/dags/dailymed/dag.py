@@ -4,11 +4,11 @@ import zipfile
 import os
 
 from airflow.decorators import dag, task
-from airflow.hooks.subprocess import SubprocessHook
 
 from lxml import etree
 
 from sagerx import create_path, load_df_to_pg
+from common_dag_tasks import run_subprocess_command
 from airflow_operator import DEFAULT_START_DATE
 
 @dag(
@@ -140,12 +140,20 @@ def dailymed():
                 load_xml_data(spl_type_data_folder)
 
 
-    # Task to transform data using dbt
+    # Task to transform data using dbt, in the dbt CONTAINER like every other DAG.
+    # Until 2026-10 this ran `dbt` inside the Airflow scheduler, which was wrong three ways
+    # at once: the scheduler's dbt-core was 1.5.11 (the dbt container's is 1.12); the
+    # scheduler has no DBT_TARGET, so it built into sagerx_dev (the 2026-10-10 run logged
+    # target='dev' and built 17 models there); and SubprocessHook.run_command RETURNS a
+    # failing exit code rather than raising, so a dbt error left this task green.
+    # run_subprocess_command raises on a non-zero exit.
     @task
     def transform():
-        subprocess = SubprocessHook()
-        result = subprocess.run_command(['dbt', 'run', '--select', 'models/staging/dailymed', 'models/intermediate/dailymed', 'ndcs_to_label_images'], cwd='/dbt/sagerx')
-        print("Result from dbt:", result)
+        run_subprocess_command(
+            ['docker', 'exec', 'dbt', 'dbt', 'run', '--select',
+             'models/staging/dailymed', 'models/intermediate/dailymed', 'ndcs_to_label_images'],
+            cwd='/dbt/sagerx',
+        )
 
     extract() >> load() >> transform()
 

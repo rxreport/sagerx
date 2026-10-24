@@ -11,7 +11,6 @@ from airflow.operators.python import get_current_context
 from airflow.operators.python_operator import PythonOperator
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.hooks.postgres_hook import PostgresHook
-from airflow.hooks.subprocess import SubprocessHook
 
 import user_macros
 from airflow_operator import DEFAULT_START_DATE
@@ -98,14 +97,6 @@ def cms_part_d():
             )
         )
 
-    # Task to transform data using dbt
-    @task
-    def transform():
-        subprocess = SubprocessHook()
-        result = subprocess.run_command(['dbt', 'run', '--select', 'models/staging/fda_ndc'], cwd='/dbt/sagerx')
-        print("Result from dbt:", result)
-
     unzip(extract()) >> load
-    # extract() >> load >> transform()
 
 cms_part_d()
