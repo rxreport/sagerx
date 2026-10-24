@@ -71,6 +71,8 @@ jobs:
             run /src/airflow/dags/check_start_dates.py
             run /src/airflow/dags/check_marts_coverage.py --self-test
             run /src/airflow/dags/check_marts_coverage.py
+            run /src/ci/dbt_call_check.py --self-test
+            run /src/ci/dbt_call_check.py
             n=0
             for t in $(find /src/airflow/dags -name "test_*.py" -not -path "*/__pycache__/*" | sort); do
               run "$t"; n=$((n + 1))
