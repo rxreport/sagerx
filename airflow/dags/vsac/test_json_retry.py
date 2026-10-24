@@ -1,8 +1,9 @@
 """Proof for `_get_json`'s retry: `python3 test_json_retry.py`.
 
-⚠ NOTHING RUNS THIS AUTOMATICALLY, like its sibling `test_empty_xml_retry.py`: this
-repo has no CI and no test runner, so it is a script you run by hand when you touch
-`_get_json`, not a gate.
+CI runs this on every pull request and push to main (.github/workflows/ci.yml,
+inside the Airflow image), finding it by its test_*.py name; it exits non-zero
+on any failed case, so a failure blocks the PR. It is still safe to run by hand.
+Run it when you touch `_get_json`.
 
 It loads `_get_json` out of `dag_tasks.py` with `ast` rather than importing the
 module, because importing it pulls in airflow and reads a `Variable`; neither

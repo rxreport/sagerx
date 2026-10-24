@@ -1,8 +1,9 @@
 """Proof for `_get_xml`'s blank-response retry — `python3 test_empty_xml_retry.py`.
 
-⚠ NOTHING RUNS THIS AUTOMATICALLY. This repo has no CI and no test runner, so
-this is a script you run by hand when you touch `_get_xml`, not a gate. Said
-plainly because a guard nobody runs that everyone believes in is worse than none.
+CI runs this on every pull request and push to main (.github/workflows/ci.yml,
+inside the Airflow image), finding it by its test_*.py name; it exits non-zero
+on any failed case, so a failure blocks the PR. It is still safe to run by hand.
+Run it when you touch `_get_xml`.
 
 It loads `_get_xml` out of `dag_tasks.py` with `ast` rather than importing the
 module, because importing it pulls in airflow and reads a `Variable` — neither of
