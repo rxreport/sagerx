@@ -2,10 +2,11 @@
 
     python3 airflow/dags/umls/test_retired_concepts.py
 
-⚠ NOTHING RUNS THIS AUTOMATICALLY. This repo has no CI and no test runner, so
-this is a script you run by hand when you touch `concurrent_api_calls`,
-`_iter_concurrent_api_results` or `umls/uts.py`, not a gate. Said plainly
-because a guard nobody runs that everyone believes in is worse than none.
+CI runs this on every pull request and push to main (.github/workflows/ci.yml,
+inside the Airflow image), finding it by its test_*.py name; it exits non-zero
+on any failed case, so a failure blocks the PR. It is still safe to run by hand.
+Run it when you touch `concurrent_api_calls`, `_iter_concurrent_api_results`
+or `umls/uts.py`.
 Standard library only; Python 3.7 (the warehouse's Airflow image) and later.
 Exits 1 if any case fails.
 
